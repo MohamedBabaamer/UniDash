@@ -7,6 +7,26 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Firebase build and deployment files
+/firebase-debug.log
+/firebase-debug.*.log
+.firebaserc
+
+# Firebase Hosting
+/firebase.json
+*.cache
+hosting/.cache
+
+# Firebase Functions
+/functions/node_modules/
+/functions/.env
+/functions/package-lock.json
+
+# Firebase Emulators
+/firebase-*.zip
+/.firebase/
+/emulator-ui/
+
 node_modules
 dist
 dist-ssr
@@ -15,6 +35,7 @@ dist-ssr
 # Environment variables
 .env.local
 .env
+/.env.*
 
 # Editor directories and files
 .vscode/*
