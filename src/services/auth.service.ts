@@ -6,7 +6,7 @@ import {
   User,
   updateProfile
 } from 'firebase/auth';
-import { auth } from '../firebase.config';
+import { auth } from '../config/firebase.config';
 
 // Sign up
 export const signUp = async (email: string, password: string, displayName: string) => {

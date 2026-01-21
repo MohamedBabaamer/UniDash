@@ -13,7 +13,7 @@ import {
   Timestamp,
   writeBatch
 } from 'firebase/firestore';
-import { db } from '../firebase.config';
+import { db } from '../config/firebase.config';
 import type { Course, StudentPayment, UserProfile, Resource, Exam, Series } from '../types';
 
 // ==================== USER PROFILES ====================

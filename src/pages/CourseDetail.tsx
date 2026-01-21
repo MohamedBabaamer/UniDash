@@ -7,7 +7,7 @@ import {
 } from "../services/database.service";
 import { Course, Resource, Series } from "../types";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../firebase.config";
+import { db } from "../config/firebase.config";
 import SecurePDFViewer from "../components/SecurePDFViewer";
 
 const CourseDetail: React.FC = () => {

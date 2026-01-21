@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase.config';
+import { db } from '../config/firebase.config';
 
 interface ExamSettingsData {
   globalExamDate: string;
