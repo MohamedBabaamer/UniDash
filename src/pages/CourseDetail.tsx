@@ -227,10 +227,11 @@ const CourseDetail: React.FC = () => {
     .filter((s) => s.type === "Exam")
     .sort((a, b) => a.title.localeCompare(b.title));
 
-  // Group exams by type (Final, TD, TP)
+  // Group exams by type (Final, TD, TP, Devoir)
   const examFinalSeries = examSeries.filter((s) => s.title.toLowerCase().includes('final'));
   const examTDSeries = examSeries.filter((s) => s.title.toLowerCase().includes('td') && !s.title.toLowerCase().includes('final'));
   const examTPSeries = examSeries.filter((s) => s.title.toLowerCase().includes('tp') && !s.title.toLowerCase().includes('final'));
+  const examDevoirSeries = examSeries.filter((s) => s.title.toLowerCase().includes('devoir') && !s.title.toLowerCase().includes('final'));
 
   // Check if solutions should be unlocked using global exam date
   const areSolutionsUnlocked =
@@ -1010,6 +1011,93 @@ const CourseDetail: React.FC = () => {
                           className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
                             item.hasSolution && item.solutionUrl
                               ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={
+                            !item.hasSolution
+                              ? 'No solution available'
+                              : !item.solutionUrl
+                              ? 'Solution PDF not found - No attachment available'
+                              : 'Download solution'
+                          }
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                          </span>
+                          Solution
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Devoir Exams Section */}
+              {examDevoirSeries.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wider px-2 border-b border-purple-200 pb-2">
+                    Devoir:
+                  </h4>
+                  {examDevoirSeries.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-slate-50 hover:bg-purple-50 rounded-lg border border-slate-200 hover:border-purple-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {formatTitle(item.title)}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          {!item.driveUrl && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">error</span>
+                              No file
+                            </span>
+                          )}
+                          {item.hasSolution && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                check_circle
+                              </span>
+                              Has Solution
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        {new Date(item.date).toLocaleDateString()}
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
+                          disabled={!item.driveUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                            item.driveUrl
+                              ? 'bg-purple-600 hover:bg-purple-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.driveUrl ? 'download' : 'block'}
+                          </span>
+                          Exam File
+                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (item.hasSolution && item.solutionUrl) {
+                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                            }
+                          }}
+                          disabled={!item.hasSolution || !item.solutionUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                            item.hasSolution && item.solutionUrl
+                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
                               : 'bg-slate-400 cursor-not-allowed opacity-70'
                           }`}
                           title={
