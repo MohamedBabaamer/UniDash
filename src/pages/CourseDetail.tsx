@@ -5,7 +5,7 @@ import {
   getResourcesByCourseId,
   getSeriesByCourseId,
 } from "../services/database.service";
-import { Course, Resource, Series } from "../types";
+import { Course, Resource, Series } from "../types/index";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../config/firebase.config";
 import SecurePDFViewer from "../components/SecurePDFViewer";
@@ -19,11 +19,31 @@ const CourseDetail: React.FC = () => {
   const [globalExamDate, setGlobalExamDate] = useState<string | null>(null);
   const [examSettingsEnabled, setExamSettingsEnabled] = useState(true);
   const [viewingPDF, setViewingPDF] = useState<{ url: string; title: string } | null>(null);
+  const [courseProgress, setCourseProgress] = useState({
+    viewedChapters: new Set<string>(),
+    viewedTD: new Set<string>(),
+    viewedTP: new Set<string>(),
+    viewedExams: new Set<string>(),
+  });
 
   useEffect(() => {
     if (id) {
       fetchCourseData();
       fetchGlobalExamSettings();
+      
+      // Load progress for this course
+      const savedProgress = localStorage.getItem('courseProgress');
+      if (savedProgress) {
+        const allProgress = JSON.parse(savedProgress);
+        if (allProgress[id]) {
+          setCourseProgress({
+            viewedChapters: new Set(allProgress[id].viewedChapters || []),
+            viewedTD: new Set(allProgress[id].viewedTD || []),
+            viewedTP: new Set(allProgress[id].viewedTP || []),
+            viewedExams: new Set(allProgress[id].viewedExams || []),
+          });
+        }
+      }
     }
   }, [id]);
 
@@ -69,6 +89,28 @@ const CourseDetail: React.FC = () => {
       setCourse(courseData);
       setResources(resourcesData);
       setSeries(seriesData);
+      
+      // Update total counts in localStorage
+      if (id) {
+        const savedProgress = localStorage.getItem('courseProgress');
+        const allProgress = savedProgress ? JSON.parse(savedProgress) : {};
+        
+        if (!allProgress[id]) {
+          allProgress[id] = {
+            viewedChapters: [],
+            viewedTD: [],
+            viewedTP: [],
+            viewedExams: [],
+          };
+        }
+        
+        allProgress[id].totalChapters = resourcesData.length;
+        allProgress[id].totalTD = seriesData.filter(s => s.type === 'TD').length;
+        allProgress[id].totalTP = seriesData.filter(s => s.type === 'TP').length;
+        allProgress[id].totalExams = seriesData.filter(s => s.type === 'Exam').length;
+        
+        localStorage.setItem('courseProgress', JSON.stringify(allProgress));
+      }
     } catch (error) {
       console.error("❌ Error fetching course data:", error);
     } finally {
@@ -87,8 +129,69 @@ const CourseDetail: React.FC = () => {
     return levelMap[level] || level;
   };
 
-  const openDriveUrl = (url: string, title: string = "Document") => {
+  const openDriveUrl = (url: string, title: string = "Document", itemId?: string, itemType?: 'chapter' | 'TD' | 'TP' | 'exam') => {
     setViewingPDF({ url, title });
+    
+    // Mark as viewed
+    if (id && itemId && itemType) {
+      const savedProgress = localStorage.getItem('courseProgress');
+      const allProgress = savedProgress ? JSON.parse(savedProgress) : {};
+      
+      if (!allProgress[id]) {
+        allProgress[id] = {
+          viewedChapters: [],
+          viewedTD: [],
+          viewedTP: [],
+          viewedExams: [],
+          totalChapters: resources.length,
+          totalTD: series.filter(s => s.type === 'TD').length,
+          totalTP: series.filter(s => s.type === 'TP').length,
+          totalExams: series.filter(s => s.type === 'Exam').length,
+        };
+      }
+      
+      // Add to appropriate viewed list
+      switch(itemType) {
+        case 'chapter':
+          if (!allProgress[id].viewedChapters.includes(itemId)) {
+            allProgress[id].viewedChapters.push(itemId);
+          }
+          setCourseProgress(prev => ({
+            ...prev,
+            viewedChapters: new Set([...prev.viewedChapters, itemId])
+          }));
+          break;
+        case 'TD':
+          if (!allProgress[id].viewedTD.includes(itemId)) {
+            allProgress[id].viewedTD.push(itemId);
+          }
+          setCourseProgress(prev => ({
+            ...prev,
+            viewedTD: new Set([...prev.viewedTD, itemId])
+          }));
+          break;
+        case 'TP':
+          if (!allProgress[id].viewedTP.includes(itemId)) {
+            allProgress[id].viewedTP.push(itemId);
+          }
+          setCourseProgress(prev => ({
+            ...prev,
+            viewedTP: new Set([...prev.viewedTP, itemId])
+          }));
+          break;
+        case 'exam':
+          if (!allProgress[id].viewedExams.includes(itemId)) {
+            allProgress[id].viewedExams.push(itemId);
+          }
+          setCourseProgress(prev => ({
+            ...prev,
+            viewedExams: new Set([...prev.viewedExams, itemId])
+          }));
+          break;
+      }
+      
+      localStorage.setItem('courseProgress', JSON.stringify(allProgress));
+    }
   };
 
   // Filter series by type and sort alphabetically by title
@@ -115,6 +218,25 @@ const CourseDetail: React.FC = () => {
       month: "long",
       day: "numeric",
     });
+  };
+
+  // Calculate real progress based on viewed content
+  const calculateProgress = (): number => {
+    const totalChapters = resources.length;
+    const totalTD = tdSeries.length;
+    const totalTP = tpSeries.length;
+    const totalExams = examSeries.length;
+    
+    const totalItems = totalChapters + totalTD + totalTP + totalExams;
+    if (totalItems === 0) return 0;
+
+    const viewedItems = 
+      courseProgress.viewedChapters.size + 
+      courseProgress.viewedTD.size + 
+      courseProgress.viewedTP.size + 
+      courseProgress.viewedExams.size;
+
+    return Math.round((viewedItems / totalItems) * 100);
   };
 
   if (loading) {
@@ -306,21 +428,21 @@ const CourseDetail: React.FC = () => {
                 Course Progress
               </span>
               <span className="text-sm font-medium text-primary">
-                {course.progress}%
+                {calculateProgress()}%
               </span>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-primary h-2.5 rounded-full transition-all"
-                style={{ width: `${course.progress}%` }}
+                className="bg-primary h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${calculateProgress()}%` }}
               ></div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Grid Layout for Cards */}
-      <div className={`grid ${gridCols} gap-6`}>
+      {/* Two Column Layout: Course and TD/TP */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Course Chapters Card - Only show if enabled */}
         {showCours && (
           <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
@@ -341,12 +463,17 @@ const CourseDetail: React.FC = () => {
                 {resources.map((resource) => (
                   <div
                     key={resource.id}
-                    onClick={() => openDriveUrl(resource.driveUrl, `Chapter ${resource.chapterNumber}: ${resource.title}`)}
+                    onClick={() => openDriveUrl(resource.driveUrl, `Chapter ${resource.chapterNumber}: ${resource.title}`, resource.id, 'chapter')}
                     className="group p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-primary/30 transition-all cursor-pointer"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold flex-shrink-0">
+                      <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold flex-shrink-0 relative">
                         {resource.chapterNumber}
+                        {courseProgress.viewedChapters.has(resource.id) && (
+                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-[12px]">check</span>
+                          </span>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-bold text-slate-900 mb-1">
@@ -376,23 +503,36 @@ const CourseDetail: React.FC = () => {
           </div>
         )}
 
-        {/* TD Card - Only show if enabled */}
-        {showTD && (
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <span className="material-symbols-outlined text-blue-600">
-                  description
-                </span>
-                TD (Travaux Dirigés)
-              </h3>
-              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">
-                {tdSeries.length}
+        {/* TD/TP Combined Column */}
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary">
+                groups
               </span>
+              TD / TP
+            </h3>
+            <div className="flex gap-2">
+              {showTD && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">
+                  {tdSeries.length} TD
+                </span>
+              )}
+              {showTP && (
+                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
+                  {tpSeries.length} TP
+                </span>
+              )}
             </div>
+          </div>
 
-            {tdSeries.length > 0 ? (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+          <div className="space-y-4 max-h-[500px] overflow-y-auto">
+            {/* TD Section */}
+            {showTD && tdSeries.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2">
+                  Travaux Dirigés
+                </h4>
                 {tdSeries.map((item) => (
                   <div
                     key={item.id}
@@ -402,87 +542,90 @@ const CourseDetail: React.FC = () => {
                       <h4 className="text-sm font-bold text-slate-900">
                         {item.title}
                       </h4>
-                      {item.hasSolution && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                          <span className="material-symbols-outlined text-[14px]">
-                            check_circle
+                      <div className="flex items-center gap-2">
+                        {!item.driveUrl && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                            <span className="material-symbols-outlined text-[14px]">error</span>
+                            No file
                           </span>
-                          Solution
-                        </span>
-                      )}
+                        )}
+                        {item.hasSolution && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                            <span className="material-symbols-outlined text-[14px]">
+                              check_circle
+                            </span>
+                            Has Solution
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <p className="text-xs text-slate-500 mb-3">
                       {new Date(item.date).toLocaleDateString()}
                     </p>
                     <div className="flex gap-2">
-                      {item.driveUrl && (
-                        <button
-                          onClick={() => openDriveUrl(item.driveUrl, item.title)}
-                          className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            download
+                      {/* TD File Button - Always visible */}
+                      <button
+                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'TD')}
+                        disabled={!item.driveUrl}
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                          item.driveUrl
+                            ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={item.driveUrl ? 'Download TD file' : 'PDF not found - No attachment available'}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.driveUrl ? 'download' : 'block'}
+                        </span>
+                        TD File
+                        {item.driveUrl && courseProgress.viewedTD.has(item.id) && (
+                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
                           </span>
-                          TD File
-                        </button>
-                      )}
-                      {item.hasSolution && item.solutionUrl && (
-                        <button
-                          onClick={() =>
-                            areSolutionsUnlocked
-                              ? openDriveUrl(item.solutionUrl)
-                              : null
+                        )}
+                      </button>
+
+                      {/* Solution Button - Always visible */}
+                      <button
+                        onClick={() => {
+                          if (item.hasSolution && item.solutionUrl && areSolutionsUnlocked) {
+                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'TD');
                           }
-                          disabled={!areSolutionsUnlocked}
-                          className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            areSolutionsUnlocked
-                              ? "bg-green-600 hover:bg-green-700 cursor-pointer"
-                              : "bg-slate-400 cursor-not-allowed opacity-70"
-                          }`}
-                          title={
-                            areSolutionsUnlocked
-                              ? "Download solution"
-                              : `Solutions unlock on ${getUnlockDateMessage()}`
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {areSolutionsUnlocked ? "lightbulb" : "lock"}
-                          </span>
-                          {areSolutionsUnlocked ? "Solution" : "Locked"}
-                        </button>
-                      )}
+                        }}
+                        disabled={!item.hasSolution || !item.solutionUrl || !areSolutionsUnlocked}
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                          item.hasSolution && item.solutionUrl && areSolutionsUnlocked
+                            ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={
+                          !item.hasSolution
+                            ? 'No solution available'
+                            : !item.solutionUrl
+                            ? 'Solution PDF not found - No attachment available'
+                            : !areSolutionsUnlocked
+                            ? `Solutions unlock on ${getUnlockDateMessage()}`
+                            : 'Download solution'
+                        }
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.hasSolution && item.solutionUrl && areSolutionsUnlocked ? 'lightbulb' : 
+                           !areSolutionsUnlocked ? 'lock' : 'block'}
+                        </span>
+                        {areSolutionsUnlocked ? 'Solution' : 'Locked'}
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="text-center py-12 text-slate-400">
-                <span className="material-symbols-outlined text-5xl mb-2">
-                  description
-                </span>
-                <p className="text-sm">No TD available</p>
-              </div>
             )}
-          </div>
-        )}
 
-        {/* TP Card - Only show if enabled */}
-        {showTP && (
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <span className="material-symbols-outlined text-green-600">
-                  science
-                </span>
-                TP (Travaux Pratiques)
-              </h3>
-              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
-                {tpSeries.length}
-              </span>
-            </div>
-
-            {tpSeries.length > 0 ? (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+            {/* TP Section */}
+            {showTP && tpSeries.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-bold text-green-600 uppercase tracking-wider px-2">
+                  Travaux Pratiques
+                </h4>
                 {tpSeries.map((item) => (
                   <div
                     key={item.id}
@@ -492,146 +635,208 @@ const CourseDetail: React.FC = () => {
                       <h4 className="text-sm font-bold text-slate-900">
                         {item.title}
                       </h4>
-                      {item.hasSolution && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                          <span className="material-symbols-outlined text-[14px]">
-                            check_circle
+                      <div className="flex items-center gap-2">
+                        {!item.driveUrl && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                            <span className="material-symbols-outlined text-[14px]">error</span>
+                            No file
                           </span>
-                          Solution
-                        </span>
-                      )}
+                        )}
+                        {item.hasSolution && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                            <span className="material-symbols-outlined text-[14px]">
+                              check_circle
+                            </span>
+                            Has Solution
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <p className="text-xs text-slate-500 mb-3">
                       {new Date(item.date).toLocaleDateString()}
                     </p>
                     <div className="flex gap-2">
-                      {item.driveUrl && (
-                        <button
-                          onClick={() => openDriveUrl(item.driveUrl, item.title)}
-                          className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            download
-                          </span>
-                          TP File
-                        </button>
-                      )}
-                      {item.hasSolution && item.solutionUrl && (
-                        <button
-                          onClick={() =>
-                            areSolutionsUnlocked
-                              ? openDriveUrl(item.solutionUrl, `${item.title} - Solution`)
-                              : null
-                          }
-                          disabled={!areSolutionsUnlocked}
-                          className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            areSolutionsUnlocked
-                              ? "bg-amber-600 hover:bg-amber-700 cursor-pointer"
-                              : "bg-slate-400 cursor-not-allowed opacity-70"
-                          }`}
-                          title={
-                            areSolutionsUnlocked
-                              ? "Download solution"
-                              : `Solutions unlock on ${getUnlockDateMessage()}`
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {areSolutionsUnlocked ? "lightbulb" : "lock"}
-                          </span>
-                          {areSolutionsUnlocked ? "Solution" : "Locked"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 text-slate-400">
-                <span className="material-symbols-outlined text-5xl mb-2">
-                  science
-                </span>
-                <p className="text-sm">No TP available</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Exams Card - Only show if enabled */}
-        {showExam && (
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <span className="material-symbols-outlined text-red-600">
-                  quiz
-                </span>
-                Exam Archives
-              </h3>
-              <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">
-                {examSeries.length}
-              </span>
-            </div>
-
-            {examSeries.length > 0 ? (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {examSeries.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-4 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-all"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-bold text-slate-900">
-                        {item.title}
-                      </h4>
-                      {item.hasSolution && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                          <span className="material-symbols-outlined text-[14px]">
-                            check_circle
-                          </span>
-                          Solution
+                      {/* TP File Button - Always visible */}
+                      <button
+                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'TP')}
+                        disabled={!item.driveUrl}
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                          item.driveUrl
+                            ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={item.driveUrl ? 'Download TP file' : 'PDF not found - No attachment available'}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.driveUrl ? 'download' : 'block'}
                         </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 mb-3">
-                      {new Date(item.date).toLocaleDateString()}
-                    </p>
-                    <div className="flex gap-2">
-                      {item.driveUrl && (
-                        <button
-                          onClick={() => openDriveUrl(item.driveUrl, item.title)}
-                          className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            download
+                        TP File
+                        {item.driveUrl && courseProgress.viewedTP.has(item.id) && (
+                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
                           </span>
-                          Exam
-                        </button>
-                      )}
-                      {item.hasSolution && item.solutionUrl && (
-                        <button
-                          onClick={() => openDriveUrl(item.solutionUrl, `${item.title} - Solution`)}
-                          className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            lightbulb
-                          </span>
-                          Solution
-                        </button>
-                      )}
+                        )}
+                      </button>
+
+                      {/* Solution Button - Always visible */}
+                      <button
+                        onClick={() => {
+                          if (item.hasSolution && item.solutionUrl && areSolutionsUnlocked) {
+                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'TP');
+                          }
+                        }}
+                        disabled={!item.hasSolution || !item.solutionUrl || !areSolutionsUnlocked}
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                          item.hasSolution && item.solutionUrl && areSolutionsUnlocked
+                            ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={
+                          !item.hasSolution
+                            ? 'No solution available'
+                            : !item.solutionUrl
+                            ? 'Solution PDF not found - No attachment available'
+                            : !areSolutionsUnlocked
+                            ? `Solutions unlock on ${getUnlockDateMessage()}`
+                            : 'Download solution'
+                        }
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.hasSolution && item.solutionUrl && areSolutionsUnlocked ? 'lightbulb' : 
+                           !areSolutionsUnlocked ? 'lock' : 'block'}
+                        </span>
+                        {areSolutionsUnlocked ? 'Solution' : 'Locked'}
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
+            )}
+
+            {/* Empty State */}
+            {(!showTD || tdSeries.length === 0) && (!showTP || tpSeries.length === 0) && (
               <div className="text-center py-12 text-slate-400">
                 <span className="material-symbols-outlined text-5xl mb-2">
-                  quiz
+                  folder_off
                 </span>
-                <p className="text-sm">No exams available</p>
+                <p className="text-sm">No TD/TP available</p>
               </div>
             )}
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Exams Section Below */}
+      {showExam && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <span className="material-symbols-outlined text-red-600">
+                quiz
+              </span>
+              Exam Archives
+            </h3>
+            <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">
+              {examSeries.length}
+            </span>
+          </div>
+
+          {examSeries.length > 0 ? (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {examSeries.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-all"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-bold text-slate-900">
+                      {item.title}
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      {!item.driveUrl && (
+                        <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                          <span className="material-symbols-outlined text-[14px]">error</span>
+                          No file
+                        </span>
+                      )}
+                      {item.hasSolution && (
+                        <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                          <span className="material-symbols-outlined text-[14px]">
+                            check_circle
+                          </span>
+                          Has Solution
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">
+                      {new Date(item.date).toLocaleDateString()}
+                    </p>
+                    <div className="flex gap-2">
+                      {/* Exam File Button - Always visible */}
+                      <button
+                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
+                        disabled={!item.driveUrl}
+                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 relative ${
+                          item.driveUrl
+                            ? 'bg-red-600 hover:bg-red-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">
+                          {item.driveUrl ? 'download' : 'block'}
+                        </span>
+                        Exam
+                        {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
+                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                          </span>
+                        )}
+                      </button>
+
+                      {/* Solution Button - Always visible */}
+                      <button
+                        onClick={() => {
+                          if (item.hasSolution && item.solutionUrl) {
+                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                          }
+                        }}
+                        disabled={!item.hasSolution || !item.solutionUrl}
+                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
+                          item.hasSolution && item.solutionUrl
+                            ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={
+                          !item.hasSolution
+                            ? 'No solution available'
+                            : !item.solutionUrl
+                            ? 'Solution PDF not found - No attachment available'
+                            : 'Download solution'
+                        }
+                      >
+                        <span className="material-symbols-outlined text-[14px]">
+                          {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                        </span>
+                        Solution
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              <span className="material-symbols-outlined text-5xl mb-2">
+                quiz
+              </span>
+              <p className="text-sm">No exams available</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Secure PDF Viewer Modal */}
       {viewingPDF && (

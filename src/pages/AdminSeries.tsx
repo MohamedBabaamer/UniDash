@@ -390,33 +390,52 @@ const AdminSeries: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex gap-2">
+                          {/* View File Button */}
                           <a
-                            href={item.driveUrl}
+                            href={item.driveUrl || '#'}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            title="View File"
+                            className={`p-2 rounded-lg transition-colors ${
+                              item.driveUrl
+                                ? 'text-green-600 hover:bg-green-50 cursor-pointer'
+                                : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
+                            }`}
+                            title={item.driveUrl ? 'View File' : 'No file attachment - PDF not found'}
+                            onClick={(e) => !item.driveUrl && e.preventDefault()}
                           >
                             <span className="material-symbols-outlined text-[20px]">
-                              folder_open
+                              {item.driveUrl ? 'folder_open' : 'block'}
                             </span>
                           </a>
-                          {item.hasSolution && item.solutionUrl && (
-                            <a
-                              href={item.solutionUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                              title="View Solution"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">
-                                lightbulb
-                              </span>
-                            </a>
-                          )}
+
+                          {/* View Solution Button */}
+                          <a
+                            href={item.solutionUrl || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`p-2 rounded-lg transition-colors ${
+                              item.hasSolution && item.solutionUrl
+                                ? 'text-purple-600 hover:bg-purple-50 cursor-pointer'
+                                : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
+                            }`}
+                            title={
+                              !item.hasSolution
+                                ? 'No solution available'
+                                : !item.solutionUrl
+                                ? 'No solution attachment - PDF not found'
+                                : 'View Solution'
+                            }
+                            onClick={(e) => (!item.hasSolution || !item.solutionUrl) && e.preventDefault()}
+                          >
+                            <span className="material-symbols-outlined text-[20px]">
+                              {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                            </span>
+                          </a>
+
                           <button
                             onClick={() => handleEdit(item)}
                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Series"
                           >
                             <span className="material-symbols-outlined text-[20px]">
                               edit
