@@ -157,7 +157,7 @@ const AdminChapters: React.FC = () => {
     
     try {
       const resourceData: any = {
-        title: formData.title,
+        title: formatTitle(formData.title), // Format title before saving
         chapterNumber: formData.chapterNumber,
         driveUrl: formData.driveUrl,
         date: formData.date,

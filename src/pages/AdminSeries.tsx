@@ -103,7 +103,7 @@ const AdminSeries: React.FC = () => {
 
       const seriesData: any = {
         courseId: formData.courseId,
-        title: formData.title,
+        title: formatTitle(formData.title), // Format title before saving
         type: formData.type,
         driveUrl: formData.driveUrl,
         hasSolution: formData.hasSolution,
