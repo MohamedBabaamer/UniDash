@@ -129,6 +129,28 @@ const CourseDetail: React.FC = () => {
     return levelMap[level] || level;
   };
 
+  // Format title by replacing _ and - with spaces, but keep year ranges like 2024-2025
+  const formatTitle = (title: string): string => {
+    // First, protect year ranges by temporarily replacing them
+    const yearPattern = /(\d{4})[-](\d{4})/g;
+    const protectedYears: string[] = [];
+    let tempTitle = title.replace(yearPattern, (match) => {
+      const placeholder = `__YEAR${protectedYears.length}__`;
+      protectedYears.push(match);
+      return placeholder;
+    });
+    
+    // Replace all _ and - with spaces
+    tempTitle = tempTitle.replace(/[_-]/g, ' ');
+    
+    // Restore the year ranges
+    protectedYears.forEach((year, index) => {
+      tempTitle = tempTitle.replace(`__YEAR${index}__`, year);
+    });
+    
+    return tempTitle;
+  };
+
   const openDriveUrl = (url: string, title: string = "Document", itemId?: string, itemType?: 'chapter' | 'TD' | 'TP' | 'exam') => {
     setViewingPDF({ url, title });
     
@@ -204,6 +226,11 @@ const CourseDetail: React.FC = () => {
   const examSeries = series
     .filter((s) => s.type === "Exam")
     .sort((a, b) => a.title.localeCompare(b.title));
+
+  // Group exams by type (Final, TD, TP)
+  const examFinalSeries = examSeries.filter((s) => s.title.toLowerCase().includes('final'));
+  const examTDSeries = examSeries.filter((s) => s.title.toLowerCase().includes('td') && !s.title.toLowerCase().includes('final'));
+  const examTPSeries = examSeries.filter((s) => s.title.toLowerCase().includes('tp') && !s.title.toLowerCase().includes('final'));
 
   // Check if solutions should be unlocked using global exam date
   const areSolutionsUnlocked =
@@ -540,7 +567,7 @@ const CourseDetail: React.FC = () => {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-bold text-slate-900">
-                        {item.title}
+                        {formatTitle(item.title)}
                       </h4>
                       <div className="flex items-center gap-2">
                         {!item.driveUrl && (
@@ -633,7 +660,7 @@ const CourseDetail: React.FC = () => {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-bold text-slate-900">
-                        {item.title}
+                        {formatTitle(item.title)}
                       </h4>
                       <div className="flex items-center gap-2">
                         {!item.driveUrl && (
@@ -742,90 +769,267 @@ const CourseDetail: React.FC = () => {
           </div>
 
           {examSeries.length > 0 ? (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {examSeries.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-4 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-all"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-bold text-slate-900">
-                      {item.title}
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      {!item.driveUrl && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                          <span className="material-symbols-outlined text-[14px]">error</span>
-                          No file
-                        </span>
-                      )}
-                      {item.hasSolution && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                          <span className="material-symbols-outlined text-[14px]">
-                            check_circle
+            <div className="space-y-6 max-h-[600px] overflow-y-auto">
+              {/* Final Exams Section */}
+              {examFinalSeries.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-red-600 uppercase tracking-wider px-2 border-b border-red-200 pb-2">
+                    Final:
+                  </h4>
+                  {examFinalSeries.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {formatTitle(item.title)}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          {!item.driveUrl && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">error</span>
+                              No file
+                            </span>
+                          )}
+                          {item.hasSolution && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                check_circle
+                              </span>
+                              Has Solution
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        {new Date(item.date).toLocaleDateString()}
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
+                          disabled={!item.driveUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                            item.driveUrl
+                              ? 'bg-red-600 hover:bg-red-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.driveUrl ? 'download' : 'block'}
                           </span>
-                          Has Solution
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-500">
-                      {new Date(item.date).toLocaleDateString()}
-                    </p>
-                    <div className="flex gap-2">
-                      {/* Exam File Button - Always visible */}
-                      <button
-                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
-                        disabled={!item.driveUrl}
-                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 relative ${
-                          item.driveUrl
-                            ? 'bg-red-600 hover:bg-red-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
-                        }`}
-                        title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
-                      >
-                        <span className="material-symbols-outlined text-[14px]">
-                          {item.driveUrl ? 'download' : 'block'}
-                        </span>
-                        Exam
-                        {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
-                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                          </span>
-                        )}
-                      </button>
-
-                      {/* Solution Button - Always visible */}
-                      <button
-                        onClick={() => {
-                          if (item.hasSolution && item.solutionUrl) {
-                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                          Exam File
+                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (item.hasSolution && item.solutionUrl) {
+                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                            }
+                          }}
+                          disabled={!item.hasSolution || !item.solutionUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                            item.hasSolution && item.solutionUrl
+                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={
+                            !item.hasSolution
+                              ? 'No solution available'
+                              : !item.solutionUrl
+                              ? 'Solution PDF not found - No attachment available'
+                              : 'Download solution'
                           }
-                        }}
-                        disabled={!item.hasSolution || !item.solutionUrl}
-                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
-                          item.hasSolution && item.solutionUrl
-                            ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
-                        }`}
-                        title={
-                          !item.hasSolution
-                            ? 'No solution available'
-                            : !item.solutionUrl
-                            ? 'Solution PDF not found - No attachment available'
-                            : 'Download solution'
-                        }
-                      >
-                        <span className="material-symbols-outlined text-[14px]">
-                          {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                        </span>
-                        Solution
-                      </button>
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                          </span>
+                          Solution
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {/* TD Exams Section */}
+              {examTDSeries.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2 border-b border-blue-200 pb-2">
+                    TD:
+                  </h4>
+                  {examTDSeries.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {formatTitle(item.title)}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          {!item.driveUrl && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">error</span>
+                              No file
+                            </span>
+                          )}
+                          {item.hasSolution && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                check_circle
+                              </span>
+                              Has Solution
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        {new Date(item.date).toLocaleDateString()}
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
+                          disabled={!item.driveUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                            item.driveUrl
+                              ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.driveUrl ? 'download' : 'block'}
+                          </span>
+                          Exam File
+                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (item.hasSolution && item.solutionUrl) {
+                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                            }
+                          }}
+                          disabled={!item.hasSolution || !item.solutionUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                            item.hasSolution && item.solutionUrl
+                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={
+                            !item.hasSolution
+                              ? 'No solution available'
+                              : !item.solutionUrl
+                              ? 'Solution PDF not found - No attachment available'
+                              : 'Download solution'
+                          }
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                          </span>
+                          Solution
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* TP Exams Section */}
+              {examTPSeries.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-green-600 uppercase tracking-wider px-2 border-b border-green-200 pb-2">
+                    TP:
+                  </h4>
+                  {examTPSeries.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-slate-50 hover:bg-green-50 rounded-lg border border-slate-200 hover:border-green-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {formatTitle(item.title)}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          {!item.driveUrl && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">error</span>
+                              No file
+                            </span>
+                          )}
+                          {item.hasSolution && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                check_circle
+                              </span>
+                              Has Solution
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        {new Date(item.date).toLocaleDateString()}
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
+                          disabled={!item.driveUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                            item.driveUrl
+                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.driveUrl ? 'download' : 'block'}
+                          </span>
+                          Exam File
+                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (item.hasSolution && item.solutionUrl) {
+                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                            }
+                          }}
+                          disabled={!item.hasSolution || !item.solutionUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                            item.hasSolution && item.solutionUrl
+                              ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={
+                            !item.hasSolution
+                              ? 'No solution available'
+                              : !item.solutionUrl
+                              ? 'Solution PDF not found - No attachment available'
+                              : 'Download solution'
+                          }
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                          </span>
+                          Solution
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-12 text-slate-400">

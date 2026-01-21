@@ -32,6 +32,28 @@ const AdminSeries: React.FC = () => {
     hasSolution: false,
   });
 
+  // Format title by replacing _ and - with spaces, but keep year ranges like 2024-2025
+  const formatTitle = (title: string): string => {
+    // First, protect year ranges by temporarily replacing them
+    const yearPattern = /(\d{4})[-](\d{4})/g;
+    const protectedYears: string[] = [];
+    let tempTitle = title.replace(yearPattern, (match) => {
+      const placeholder = `__YEAR${protectedYears.length}__`;
+      protectedYears.push(match);
+      return placeholder;
+    });
+    
+    // Replace all _ and - with spaces
+    tempTitle = tempTitle.replace(/[_-]/g, ' ');
+    
+    // Restore the year ranges
+    protectedYears.forEach((year, index) => {
+      tempTitle = tempTitle.replace(`__YEAR${index}__`, year);
+    });
+    
+    return tempTitle;
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -355,7 +377,7 @@ const AdminSeries: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm font-bold text-slate-900">
-                          {item.title}
+                          {formatTitle(item.title)}
                         </div>
                         {item.description && (
                           <div className="text-xs text-slate-500 mt-1 line-clamp-1">
