@@ -129,26 +129,9 @@ const CourseDetail: React.FC = () => {
     return levelMap[level] || level;
   };
 
-  // Format title by replacing _ and - with spaces, but keep year ranges like 2024-2025
+  // Format title by replacing _ and - with spaces
   const formatTitle = (title: string): string => {
-    // First, protect year ranges by temporarily replacing them
-    const yearPattern = /(\d{4})[-](\d{4})/g;
-    const protectedYears: string[] = [];
-    let tempTitle = title.replace(yearPattern, (match) => {
-      const placeholder = `__YEAR${protectedYears.length}__`;
-      protectedYears.push(match);
-      return placeholder;
-    });
-    
-    // Replace all _ and - with spaces
-    tempTitle = tempTitle.replace(/[_-]/g, ' ');
-    
-    // Restore the year ranges
-    protectedYears.forEach((year, index) => {
-      tempTitle = tempTitle.replace(`__YEAR${index}__`, year);
-    });
-    
-    return tempTitle;
+    return title.replace(/[_-]/g, ' ');
   };
 
   const openDriveUrl = (url: string, title: string = "Document", itemId?: string, itemType?: 'chapter' | 'TD' | 'TP' | 'exam') => {
@@ -223,15 +206,65 @@ const CourseDetail: React.FC = () => {
   const tpSeries = series
     .filter((s) => s.type === "TP")
     .sort((a, b) => a.title.localeCompare(b.title));
+  const pwSeries = series
+    .filter((s) => s.type === "PW")
+    .sort((a, b) => a.title.localeCompare(b.title));
   const examSeries = series
     .filter((s) => s.type === "Exam")
     .sort((a, b) => a.title.localeCompare(b.title));
 
-  // Group exams by type (Final, TD, TP, Devoir)
-  const examFinalSeries = examSeries.filter((s) => s.title.toLowerCase().includes('final'));
-  const examTDSeries = examSeries.filter((s) => s.title.toLowerCase().includes('td') && !s.title.toLowerCase().includes('final'));
-  const examTPSeries = examSeries.filter((s) => s.title.toLowerCase().includes('tp') && !s.title.toLowerCase().includes('final'));
-  const examDevoirSeries = examSeries.filter((s) => s.title.toLowerCase().includes('devoir') && !s.title.toLowerCase().includes('final'));
+  // Filter resources into chapters and full course books
+  const chapters = resources.filter((r) => !(r as any).resourceType || (r as any).resourceType === 'chapter');
+  const books = resources.filter((r) => (r as any).resourceType === 'book');
+
+  // Helper to check if exam should be excluded (TW or Rattrapage)
+  const shouldExcludeExam = (title: string): boolean => {
+    const titleLower = title.toLowerCase();
+    
+    // Check for TW variations (Tutorial Work - English)
+    // Matches: "TW", "Exam TW", "TW Exam", etc.
+    const hasTW = titleLower.includes(' tw ') || 
+                  titleLower.includes(' tw') || 
+                  titleLower.includes('tw ') ||
+                  titleLower === 'tw' ||
+                  titleLower.startsWith('tw ') ||
+                  titleLower.endsWith(' tw') ||
+                  /\btw\b/i.test(title); // Word boundary check (case-insensitive)
+    
+    // Check for Rattrapage (French: "Rattrapage", "Rattrap") and English equivalents
+    // Matches: "Rattrapage", "Exam Rattrapage", "Makeup", "Make-up", "Resit"
+    const hasRattrapage = titleLower.includes('rattrapage') || 
+                          titleLower.includes('rattrap') ||
+                          titleLower.includes('makeup') ||
+                          titleLower.includes('make-up') ||
+                          titleLower.includes('make up') ||
+                          titleLower.includes('resit') ||
+                          titleLower.includes('re-sit');
+    
+    return hasTW || hasRattrapage;
+  };
+
+  // Group exams by type (Final, TD, TP, Devoir, Rattrapage) - Support French & English
+  const examFinalSeries = examSeries.filter((s) => {
+    const titleLower = s.title.toLowerCase();
+    return (titleLower.includes('final') || titleLower.includes('finale'));
+  });
+  const examTDSeries = examSeries.filter((s) => {
+    const titleLower = s.title.toLowerCase();
+    return (titleLower.includes('td') || titleLower.includes('tw')) && !(titleLower.includes('final') || titleLower.includes('finale'));
+  });
+  const examTPSeries = examSeries.filter((s) => {
+    const titleLower = s.title.toLowerCase();
+    return (titleLower.includes('tp') || titleLower.includes('pw')) && !(titleLower.includes('final') || titleLower.includes('finale'));
+  });
+  const examDevoirSeries = examSeries.filter((s) => {
+    const titleLower = s.title.toLowerCase();
+    return titleLower.includes('devoir') && !(titleLower.includes('final') || titleLower.includes('finale'));
+  });
+  const examRattrapageSeries = examSeries.filter((s) => {
+    const titleLower = s.title.toLowerCase();
+    return (titleLower.includes('rattrapage') || titleLower.includes('rattrap') || titleLower.includes('makeup') || titleLower.includes('make-up') || titleLower.includes('resit')) && !(titleLower.includes('final') || titleLower.includes('finale'));
+  });
 
   // Check if solutions should be unlocked using global exam date
   const areSolutionsUnlocked =
@@ -269,11 +302,54 @@ const CourseDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="p-6 md:p-10 max-w-7xl mx-auto flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          <p className="mt-4 text-slate-500">Loading course...</p>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-100 z-50 flex items-center justify-center">
+        <div className="text-center space-y-8 p-8">
+          <div className="relative inline-block">
+            <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl animate-pulse"></div>
+            <div className="relative bg-white rounded-3xl p-8 shadow-2xl border border-slate-200">
+              <span className="material-symbols-outlined text-7xl text-primary animate-bounce">
+                menu_book
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-center items-center gap-3">
+            <div className="relative w-20 h-20">
+              <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" style={{ animationDuration: '0.6s' }}></div>
+              <div className="absolute inset-2 border-4 border-slate-100 rounded-full"></div>
+              <div className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.5s' }}></div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              Loading Course Details
+            </h2>
+            <p className="text-slate-500 font-medium">
+              Preparing your content...
+            </p>
+            
+            <div className="flex justify-center gap-2 pt-2">
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+          </div>
+
+          <div className="w-64 mx-auto">
+            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full" style={{ width: '100%', animation: 'shimmer 0.8s ease-in-out infinite' }}></div>
+            </div>
+          </div>
         </div>
+
+        <style>{`
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -345,7 +421,8 @@ const CourseDetail: React.FC = () => {
         globalExamDate &&
         examSettingsEnabled &&
         (tdSeries.some((s) => s.hasSolution) ||
-          tpSeries.some((s) => s.hasSolution)) && (
+          tpSeries.some((s) => s.hasSolution) ||
+          pwSeries.some((s) => s.hasSolution)) && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
             <span className="material-symbols-outlined text-amber-600 text-2xl">
               lock
@@ -368,7 +445,8 @@ const CourseDetail: React.FC = () => {
         globalExamDate &&
         examSettingsEnabled &&
         (tdSeries.some((s) => s.hasSolution) ||
-          tpSeries.some((s) => s.hasSolution)) && (
+          tpSeries.some((s) => s.hasSolution) ||
+          pwSeries.some((s) => s.hasSolution)) && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
             <span className="material-symbols-outlined text-green-600 text-2xl">
               lock_open
@@ -414,7 +492,7 @@ const CourseDetail: React.FC = () => {
                 {getLevelName(course.level)}
               </span>
               <span className="text-slate-500 text-sm">
-                Semester {course.semester} • {course.academicYear}
+                Semester {course.semester}
               </span>
             </div>
             <h1 className="text-3xl font-black text-slate-900 mb-2">
@@ -479,16 +557,73 @@ const CourseDetail: React.FC = () => {
                 <span className="material-symbols-outlined text-primary">
                   library_books
                 </span>
-                Course Chapters
+                Course Materials
               </h3>
-              <span className="px-2 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full">
-                {resources.length}
-              </span>
+              <div className="flex gap-2">
+                {books.length > 0 && (
+                  <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">
+                    {books.length} Book{books.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {chapters.length > 0 && (
+                  <span className="px-2 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full">
+                    {chapters.length} Ch
+                  </span>
+                )}
+              </div>
             </div>
 
-            {resources.length > 0 ? (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {resources.map((resource) => (
+            {(books.length > 0 || chapters.length > 0) ? (
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {/* Full Course Books Section */}
+                {books.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wider px-2 border-b border-purple-200 pb-2">
+                      📚 Full Course Books
+                    </h4>
+                    {books.map((resource) => (
+                      <div
+                        key={resource.id}
+                        onClick={() => openDriveUrl(resource.driveUrl, resource.title, resource.id, 'chapter')}
+                        className="group p-4 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 hover:border-purple-300 transition-all cursor-pointer"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="size-10 rounded-lg bg-purple-600 flex items-center justify-center text-white font-bold flex-shrink-0 relative">
+                            📚
+                            {courseProgress.viewedChapters.has(resource.id) && (
+                              <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                <span className="material-symbols-outlined text-white text-[12px]">check</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-bold text-slate-900 mb-1">
+                              {resource.title}
+                            </h4>
+                            {resource.description && (
+                              <p className="text-xs text-slate-600 line-clamp-2">
+                                {resource.description}
+                              </p>
+                            )}
+                          </div>
+                          <span className="material-symbols-outlined text-purple-400 group-hover:text-purple-600 transition-colors">
+                            open_in_new
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Individual Chapters Section */}
+                {chapters.length > 0 && (
+                  <div className="space-y-2">
+                    {books.length > 0 && (
+                      <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2 border-b border-blue-200 pb-2 mt-4">
+                        📄 Individual Chapters
+                      </h4>
+                    )}
+                    {chapters.map((resource) => (
                   <div
                     key={resource.id}
                     onClick={() => openDriveUrl(resource.driveUrl, `Chapter ${resource.chapterNumber}: ${resource.title}`, resource.id, 'chapter')}
@@ -518,14 +653,16 @@ const CourseDetail: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                ))}
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-12 text-slate-400">
                 <span className="material-symbols-outlined text-5xl mb-2">
                   library_books
                 </span>
-                <p className="text-sm">No chapters available</p>
+                <p className="text-sm">No materials available</p>
               </div>
             )}
           </div>
@@ -549,6 +686,11 @@ const CourseDetail: React.FC = () => {
               {showTP && (
                 <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
                   {tpSeries.length} TP
+                </span>
+              )}
+              {showTP && (
+                <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full">
+                  {pwSeries.length} PW
                 </span>
               )}
             </div>
@@ -588,7 +730,9 @@ const CourseDetail: React.FC = () => {
                       </div>
                     </div>
                     <p className="text-xs text-slate-500 mb-3">
-                      {new Date(item.date).toLocaleDateString()}
+                      {item.date && !isNaN(new Date(item.date).getTime())
+                        ? new Date(item.date).toLocaleDateString()
+                        : 'Date not available'}
                     </p>
                     <div className="flex gap-2">
                       {/* TD File Button - Always visible */}
@@ -681,7 +825,9 @@ const CourseDetail: React.FC = () => {
                       </div>
                     </div>
                     <p className="text-xs text-slate-500 mb-3">
-                      {new Date(item.date).toLocaleDateString()}
+                      {item.date && !isNaN(new Date(item.date).getTime())
+                        ? new Date(item.date).toLocaleDateString()
+                        : 'Date not available'}
                     </p>
                     <div className="flex gap-2">
                       {/* TP File Button - Always visible */}
@@ -741,21 +887,116 @@ const CourseDetail: React.FC = () => {
               </div>
             )}
 
+            {/* PW Section */}
+            {showTP && pwSeries.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-bold text-amber-600 uppercase tracking-wider px-2">
+                  Practical Work
+                </h4>
+                {pwSeries.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-4 bg-slate-50 hover:bg-amber-50 rounded-lg border border-slate-200 hover:border-amber-300 transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-bold text-slate-900">
+                        {formatTitle(item.title)}
+                      </h4>
+                      <div className="flex items-center gap-2">
+                        {!item.driveUrl && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                            <span className="material-symbols-outlined text-[14px]">error</span>
+                            No file
+                          </span>
+                        )}
+                        {item.hasSolution && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                            <span className="material-symbols-outlined text-[14px]">
+                              check_circle
+                            </span>
+                            Has Solution
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-3">
+                      {item.date && !isNaN(new Date(item.date).getTime())
+                        ? new Date(item.date).toLocaleDateString()
+                        : 'Date not available'}
+                    </p>
+                    <div className="flex gap-2">
+                      {/* PW File Button - Always visible */}
+                      <button
+                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'TP')}
+                        disabled={!item.driveUrl}
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                          item.driveUrl
+                            ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={item.driveUrl ? 'Download PW file' : 'PDF not found - No attachment available'}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.driveUrl ? 'download' : 'block'}
+                        </span>
+                        PW File
+                        {item.driveUrl && courseProgress.viewedTP.has(item.id) && (
+                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                          </span>
+                        )}
+                      </button>
+
+                      {/* Solution Button - Always visible */}
+                      <button
+                        onClick={() => {
+                          if (item.hasSolution && item.solutionUrl && areSolutionsUnlocked) {
+                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'TP');
+                          }
+                        }}
+                        disabled={!item.hasSolution || !item.solutionUrl || !areSolutionsUnlocked}
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                          item.hasSolution && item.solutionUrl && areSolutionsUnlocked
+                            ? 'bg-yellow-600 hover:bg-yellow-700 cursor-pointer'
+                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                        }`}
+                        title={
+                          !item.hasSolution
+                            ? 'No solution available'
+                            : !item.solutionUrl
+                            ? 'Solution PDF not found - No attachment available'
+                            : !areSolutionsUnlocked
+                            ? `Solutions unlock on ${getUnlockDateMessage()}`
+                            : 'Download solution'
+                        }
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.hasSolution && item.solutionUrl && areSolutionsUnlocked ? 'lightbulb' : 
+                           !areSolutionsUnlocked ? 'lock' : 'block'}
+                        </span>
+                        {areSolutionsUnlocked ? 'Solution' : 'Locked'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Empty State */}
-            {(!showTD || tdSeries.length === 0) && (!showTP || tpSeries.length === 0) && (
+            {(!showTD || tdSeries.length === 0) && (!showTP || tpSeries.length === 0) && (!showTP || pwSeries.length === 0) && (
               <div className="text-center py-12 text-slate-400">
                 <span className="material-symbols-outlined text-5xl mb-2">
                   folder_off
                 </span>
-                <p className="text-sm">No TD/TP available</p>
+                <p className="text-sm">No TD/TP/PW available</p>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Exams Section Below */}
-      {showExam && (
+      {/* Exams Section Below - Only show if there are valid exams */}
+      {showExam && (examFinalSeries.length > 0 || examTDSeries.length > 0 || examTPSeries.length > 0 || examDevoirSeries.length > 0 || examRattrapageSeries.length > 0) && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
@@ -765,11 +1006,11 @@ const CourseDetail: React.FC = () => {
               Exam Archives
             </h3>
             <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">
-              {examSeries.length}
+              {examFinalSeries.length + examTDSeries.length + examTPSeries.length + examDevoirSeries.length + examRattrapageSeries.length}
             </span>
           </div>
 
-          {examSeries.length > 0 ? (
+          {(examFinalSeries.length > 0 || examTDSeries.length > 0 || examTPSeries.length > 0 || examDevoirSeries.length > 0 || examRattrapageSeries.length > 0) ? (
             <div className="space-y-6 max-h-[600px] overflow-y-auto">
               {/* Final Exams Section */}
               {examFinalSeries.length > 0 && (
@@ -804,7 +1045,9 @@ const CourseDetail: React.FC = () => {
                         </div>
                       </div>
                       <p className="text-xs text-slate-500 mb-3">
-                        {new Date(item.date).toLocaleDateString()}
+                        {item.date && !isNaN(new Date(item.date).getTime())
+                          ? new Date(item.date).toLocaleDateString()
+                          : 'Date not available'}
                       </p>
                       <div className="flex gap-2 justify-end">
                         <button
@@ -862,7 +1105,7 @@ const CourseDetail: React.FC = () => {
               {examTDSeries.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2 border-b border-blue-200 pb-2">
-                    TD:
+                    TD / Tutorial:
                   </h4>
                   {examTDSeries.map((item) => (
                     <div
@@ -891,7 +1134,9 @@ const CourseDetail: React.FC = () => {
                         </div>
                       </div>
                       <p className="text-xs text-slate-500 mb-3">
-                        {new Date(item.date).toLocaleDateString()}
+                        {item.date && !isNaN(new Date(item.date).getTime())
+                          ? new Date(item.date).toLocaleDateString()
+                          : 'Date not available'}
                       </p>
                       <div className="flex gap-2 justify-end">
                         <button
@@ -949,7 +1194,7 @@ const CourseDetail: React.FC = () => {
               {examTPSeries.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-sm font-bold text-green-600 uppercase tracking-wider px-2 border-b border-green-200 pb-2">
-                    TP:
+                    TP / Lab:
                   </h4>
                   {examTPSeries.map((item) => (
                     <div
@@ -978,7 +1223,9 @@ const CourseDetail: React.FC = () => {
                         </div>
                       </div>
                       <p className="text-xs text-slate-500 mb-3">
-                        {new Date(item.date).toLocaleDateString()}
+                        {item.date && !isNaN(new Date(item.date).getTime())
+                          ? new Date(item.date).toLocaleDateString()
+                          : 'Date not available'}
                       </p>
                       <div className="flex gap-2 justify-end">
                         <button
@@ -1011,6 +1258,95 @@ const CourseDetail: React.FC = () => {
                           className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
                             item.hasSolution && item.solutionUrl
                               ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={
+                            !item.hasSolution
+                              ? 'No solution available'
+                              : !item.solutionUrl
+                              ? 'Solution PDF not found - No attachment available'
+                              : 'Download solution'
+                          }
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
+                          </span>
+                          Solution
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Rattrapage Exams Section */}
+              {examRattrapageSeries.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-orange-600 uppercase tracking-wider px-2 border-b border-orange-200 pb-2">
+                    Rattrapage / Makeup:
+                  </h4>
+                  {examRattrapageSeries.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-slate-50 hover:bg-orange-50 rounded-lg border border-slate-200 hover:border-orange-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {formatTitle(item.title)}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          {!item.driveUrl && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">error</span>
+                              No file
+                            </span>
+                          )}
+                          {item.hasSolution && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                check_circle
+                              </span>
+                              Has Solution
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        {item.date && !isNaN(new Date(item.date).getTime())
+                          ? new Date(item.date).toLocaleDateString()
+                          : 'Date not available'}
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
+                          disabled={!item.driveUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                            item.driveUrl
+                              ? 'bg-orange-600 hover:bg-orange-700 cursor-pointer'
+                              : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          }`}
+                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.driveUrl ? 'download' : 'block'}
+                          </span>
+                          Exam File
+                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (item.hasSolution && item.solutionUrl) {
+                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
+                            }
+                          }}
+                          disabled={!item.hasSolution || !item.solutionUrl}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                            item.hasSolution && item.solutionUrl
+                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
                               : 'bg-slate-400 cursor-not-allowed opacity-70'
                           }`}
                           title={
@@ -1065,7 +1401,9 @@ const CourseDetail: React.FC = () => {
                         </div>
                       </div>
                       <p className="text-xs text-slate-500 mb-3">
-                        {new Date(item.date).toLocaleDateString()}
+                        {item.date && !isNaN(new Date(item.date).getTime())
+                          ? new Date(item.date).toLocaleDateString()
+                          : 'Date not available'}
                       </p>
                       <div className="flex gap-2 justify-end">
                         <button

@@ -10,6 +10,7 @@ export interface Course {
   level: 'L1' | 'L2' | 'L3' | 'M1' | 'M2';
   semester: 1 | 2;
   academicYear: string; // e.g., "2023-2024" or "2024-2025"
+  language?: 'fr' | 'en'; // Course teaching language (French/English)
   color: string;
   icon: string;
   userId?: string; // Optional: for user-specific courses
@@ -24,6 +25,7 @@ export interface Course {
   hasExamSolution?: boolean;
 }
 
+
 export interface Series {
   id?: string;
   courseId: string;
@@ -36,6 +38,7 @@ export interface Series {
   date: string;
   academicYear?: string;
 }
+
 
 export interface Resource {
   id?: string;

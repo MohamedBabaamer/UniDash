@@ -69,11 +69,54 @@ const AdminUsers: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="p-6 md:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          <p className="mt-4 text-slate-500">Loading users...</p>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-100 z-50 flex items-center justify-center">
+        <div className="text-center space-y-8 p-8">
+          <div className="relative inline-block">
+            <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl animate-pulse"></div>
+            <div className="relative bg-white rounded-3xl p-8 shadow-2xl border border-slate-200">
+              <span className="material-symbols-outlined text-7xl text-primary animate-bounce">
+                group
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-center items-center gap-3">
+            <div className="relative w-20 h-20">
+              <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" style={{ animationDuration: '0.6s' }}></div>
+              <div className="absolute inset-2 border-4 border-slate-100 rounded-full"></div>
+              <div className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.5s' }}></div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              Loading Users
+            </h2>
+            <p className="text-slate-500 font-medium">
+              Fetching user data...
+            </p>
+            
+            <div className="flex justify-center gap-2 pt-2">
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+          </div>
+
+          <div className="w-64 mx-auto">
+            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full" style={{ width: '100%', animation: 'shimmer 0.8s ease-in-out infinite' }}></div>
+            </div>
+          </div>
         </div>
+
+        <style>{`
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -96,7 +139,8 @@ const AdminUsers: React.FC = () => {
 
       {/* Users Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="hidden xl:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
@@ -164,6 +208,65 @@ const AdminUsers: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Card View */}
+        <div className="xl:hidden divide-y divide-slate-200">
+          {users.length === 0 ? (
+            <div className="p-12 text-center text-slate-500">
+              No users found
+            </div>
+          ) : (
+            users.map((user) => (
+              <div key={user.id} className="p-4 hover:bg-slate-50 transition-colors">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white font-bold text-lg">
+                    {(user.displayName || user.email)?.[0]?.toUpperCase() || 'U'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-bold text-slate-900 truncate">{user.displayName || 'No name'}</h3>
+                    <p className="text-xs text-slate-600 truncate">{user.email}</p>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-1 ${
+                      user.role === 'admin' 
+                        ? 'bg-purple-100 text-purple-700' 
+                        : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      <span className="material-symbols-outlined text-[12px]">
+                        {user.role === 'admin' ? 'admin_panel_settings' : 'person'}
+                      </span>
+                      {user.role}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Student ID</p>
+                    <p className="text-xs font-semibold text-slate-900">{user.studentId || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Phone</p>
+                    <p className="text-xs font-semibold text-slate-900">{user.phone || '-'}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => handleEdit(user)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">edit</span>
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={() => user.id && handleDelete(user.id, user.email)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

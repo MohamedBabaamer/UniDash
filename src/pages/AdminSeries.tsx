@@ -7,7 +7,7 @@ import {
   updateSeries,
   deleteSeries,
 } from "../services/database.service";
-import { generateSeriesDescription } from "../services/ai.service";
+// import TPMarkdownModal from "../components/TPMarkdownModal";
 
 const AdminSeries: React.FC = () => {
   const [series, setSeries] = useState<Series[]>([]);
@@ -17,41 +17,71 @@ const AdminSeries: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSeries, setEditingSeries] = useState<Series | null>(null);
+  const [showWarning, setShowWarning] = useState(true);
   const [notification, setNotification] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
-  const [generatingAI, setGeneratingAI] = useState(false);
 
   const [formData, setFormData] = useState({
     courseId: "",
     title: "",
+    titleMode: "auto" as "auto" | "manual", // Toggle between auto-generate and manual
     type: "TD" as "TD" | "TP" | "Exam",
     driveUrl: "",
     solutionUrl: "",
     hasSolution: false,
+    // New fields for auto-generation
+    language: "fr" as "fr" | "en",
+    seriesNumber: "1",
+    chapterTitle: "", // Optional chapter/topic title
+    academicYear: "", // Optional year
+    examType: "Final" as "Final" | "TD" | "TP" | "Rattrapage" | "Devoir",
   });
 
-  // Format title by replacing _ and - with spaces, but keep year ranges like 2024-2025
+  // const [showMdModal, setShowMdModal] = useState<string | null>(null);
+
+  // Format title by replacing _ and - with spaces
   const formatTitle = (title: string): string => {
-    // First, protect year ranges by temporarily replacing them
-    const yearPattern = /(\d{4})[-](\d{4})/g;
-    const protectedYears: string[] = [];
-    let tempTitle = title.replace(yearPattern, (match) => {
-      const placeholder = `__YEAR${protectedYears.length}__`;
-      protectedYears.push(match);
-      return placeholder;
-    });
+    return title.replace(/[_-]/g, ' ');
+  };
+
+  // Auto-generate title based on type and inputs
+  const generateTitle = (): string => {
+    const { type, language, seriesNumber, chapterTitle, academicYear, examType } = formData;
     
-    // Replace all _ and - with spaces
-    tempTitle = tempTitle.replace(/[_-]/g, ' ');
-    
-    // Restore the year ranges
-    protectedYears.forEach((year, index) => {
-      tempTitle = tempTitle.replace(`__YEAR${index}__`, year);
-    });
-    
-    return tempTitle;
+    if (type === "Exam") {
+      // Examen_TD_2024-2025 (French) or Exam_TW_2024-2025 (English)
+      const examPrefix = language === "fr" ? "Examen" : "Exam";
+      const examTypeMapped = examType === "TD" && language === "en" ? "TW" : 
+                            examType === "TP" && language === "en" ? "PW" : examType;
+      return `${examPrefix}_${examTypeMapped}_${academicYear}`;
+    } else {
+      // TD/TP with optional chapter title and year
+      const typePrefix = type === "TD" && language === "en" ? "TW" : 
+                        type === "TP" && language === "en" ? "PW" : type;
+      
+      // Build parts: TD1, optional chapter, optional year
+      const parts = [`${typePrefix}${seriesNumber}`];
+      
+      if (chapterTitle.trim()) {
+        parts.push(chapterTitle.trim());
+      }
+      
+      if (academicYear.trim()) {
+        parts.push(academicYear.trim());
+      }
+      
+      // Join with " : " separator
+      return parts.join(' : ');
+    }
+  };
+
+  // Handle year change and auto-format as YYYY-YYYY+1
+  const handleYearChange = (year: number) => {
+    const nextYear = year + 1;
+    const formattedYear = `${year}-${nextYear}`;
+    setFormData({ ...formData, academicYear: formattedYear });
   };
 
   useEffect(() => {
@@ -98,15 +128,26 @@ const AdminSeries: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate manual title
+    if (formData.titleMode === "manual" && !formData.title.trim()) {
+      setNotification({
+        type: "error",
+        message: "Please fill out the title field when using manual mode!",
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
     try {
       const selectedCourse = courses.find((c) => c.id === formData.courseId);
 
       const seriesData: any = {
         courseId: formData.courseId,
-        title: formatTitle(formData.title), // Format title before saving
+        title: formatTitle(formData.titleMode === "auto" ? generateTitle() : formData.title), // Use auto or manual title
         type: formData.type,
         driveUrl: formData.driveUrl,
         hasSolution: formData.hasSolution,
+        date: new Date().toISOString(), // Add current date
       };
 
       if (formData.hasSolution && formData.solutionUrl) {
@@ -119,18 +160,12 @@ const AdminSeries: React.FC = () => {
 
       if (editingSeries) {
         await updateSeries(editingSeries.id!, seriesData);
-        setSeries(
-          series.map((s) =>
-            s.id === editingSeries.id ? { ...s, ...seriesData } : s,
-          ),
-        );
         setNotification({
           type: "success",
           message: "Series updated successfully!",
         });
       } else {
-        const newId = await createSeries(seriesData);
-        setSeries([{ ...seriesData, id: newId } as Series, ...series]);
+        await createSeries(seriesData);
         setNotification({
           type: "success",
           message: "Series created successfully!",
@@ -138,6 +173,7 @@ const AdminSeries: React.FC = () => {
       }
 
       handleCloseModal();
+      await fetchData(); // Refresh data after success
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
       console.error("Error saving series:", error);
@@ -166,11 +202,11 @@ const AdminSeries: React.FC = () => {
 
     try {
       await deleteSeries(id);
-      setSeries(series.filter((s) => s.id !== id));
       setNotification({
         type: "success",
         message: "Series deleted successfully!",
       });
+      await fetchData(); // Refresh data after delete
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error("Error deleting series:", error);
@@ -181,54 +217,22 @@ const AdminSeries: React.FC = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingSeries(null);
-    setGeneratingAI(false);
+    // Auto-select filtered course if one is selected, otherwise use first course
+    const defaultCourseId = selectedCourseId !== "all" ? selectedCourseId : (courses[0]?.id || "");
     setFormData({
-      courseId: courses[0]?.id || "",
+      courseId: defaultCourseId,
       title: "",
+      titleMode: "auto",
       type: "TD",
       driveUrl: "",
       solutionUrl: "",
       hasSolution: false,
+      language: "fr",
+      seriesNumber: "1",
+      chapterTitle: "",
+      academicYear: "",
+      examType: "Final",
     });
-  };
-
-  const handleGenerateDescription = async () => {
-    if (!formData.title.trim()) {
-      setNotification({ type: "error", message: "Please enter a title first" });
-      return;
-    }
-
-    const selectedCourse = courses.find((c) => c.id === formData.courseId);
-    if (!selectedCourse) {
-      setNotification({
-        type: "error",
-        message: "Please select a course first",
-      });
-      return;
-    }
-
-    setGeneratingAI(true);
-    try {
-      const description = await generateSeriesDescription(
-        formData.title,
-        formData.type,
-        selectedCourse.name,
-      );
-      setFormData({ ...formData, description });
-      setNotification({
-        type: "success",
-        message: "Description generated successfully!",
-      });
-      setTimeout(() => setNotification(null), 3000);
-    } catch (error: any) {
-      console.error("Error generating description:", error);
-      setNotification({
-        type: "error",
-        message: error.message || "Failed to generate description",
-      });
-    } finally {
-      setGeneratingAI(false);
-    }
   };
 
   const filteredSeries = series
@@ -255,11 +259,65 @@ const AdminSeries: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          <p className="mt-4 text-slate-500">Loading series...</p>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-100 z-50 flex items-center justify-center">
+        <div className="text-center space-y-8 p-8">
+          {/* Animated Logo/Icon */}
+          <div className="relative inline-block">
+            <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl animate-pulse"></div>
+            <div className="relative bg-white rounded-3xl p-8 shadow-2xl border border-slate-200">
+              <span className="material-symbols-outlined text-7xl text-primary animate-bounce">
+                assignment
+              </span>
+            </div>
+          </div>
+
+          {/* Loading Rings */}
+          <div className="flex justify-center items-center gap-3">
+            <div className="relative w-20 h-20">
+              {/* Outer spinning ring */}
+              <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" style={{ animationDuration: '0.6s' }}></div>
+              
+              {/* Inner spinning ring (opposite direction) */}
+              <div className="absolute inset-2 border-4 border-slate-100 rounded-full"></div>
+              <div className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.5s' }}></div>
+            </div>
+          </div>
+
+          {/* Loading Text */}
+          <div className="space-y-3">
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              Loading Series Dashboard
+            </h2>
+            <p className="text-slate-500 font-medium">
+              Preparing your content...
+            </p>
+            
+            {/* Animated Dots */}
+            <div className="flex justify-center gap-2 pt-2">
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-64 mx-auto">
+            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full animate-[shimmer_0.8s_ease-in-out_infinite]"
+                   style={{ width: '100%', animation: 'shimmer 0.8s ease-in-out infinite' }}>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Shimmer Animation Keyframes */}
+        <style>{`
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -276,13 +334,6 @@ const AdminSeries: React.FC = () => {
             Manage TD, TP, and Exam exercises with solutions
           </p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-6 py-3 bg-primary hover:bg-primary/90 text-white font-bold rounded-lg transition-colors shadow-sm flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined">add</span>
-          Add New Series
-        </button>
       </div>
 
       {/* Filters */}
@@ -339,7 +390,9 @@ const AdminSeries: React.FC = () => {
             <p>No series found. Click "Add New Series" to create one.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Desktop Table View */}
+          <div className="hidden xl:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
@@ -454,6 +507,8 @@ const AdminSeries: React.FC = () => {
                             </span>
                           </a>
 
+                          {/* Removed md solution preview button and modal */}
+
                           <button
                             onClick={() => handleEdit(item)}
                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -479,6 +534,95 @@ const AdminSeries: React.FC = () => {
               </tbody>
             </table>
           </div>
+          
+          {/* Mobile Card View */}
+          <div className="xl:hidden divide-y divide-slate-200">
+            {filteredSeries.map((item) => {
+              const course = courses.find((c) => c.id === item.courseId);
+              return (
+                <div key={item.id} className="p-4 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ${getTypeColor(item.type)}`}>
+                          {item.type}
+                        </span>
+                        {item.hasSolution && (
+                          <span className="text-green-600 text-xs font-bold bg-green-50 px-2 py-1 rounded-full flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                            Solution
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-900 mb-1">{formatTitle(item.title)}</h3>
+                      {item.description && (
+                        <p className="text-xs text-slate-600 line-clamp-2 mb-2">{item.description}</p>
+                      )}
+                      {course && (
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <span className="material-symbols-outlined text-[14px]">{course.icon}</span>
+                          <span className="font-semibold truncate">{course.name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-2 border-t border-slate-100">
+                    <a
+                      href={item.driveUrl || '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex-1 flex items-center justify-center gap-1 py-2 px-3 rounded-lg transition-colors text-xs font-bold ${
+                        item.driveUrl
+                          ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                          : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
+                      }`}
+                      title={item.driveUrl ? 'View File' : 'No file'}
+                      onClick={(e) => !item.driveUrl && e.preventDefault()}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">
+                        {item.driveUrl ? 'folder_open' : 'block'}
+                      </span>
+                      <span>File</span>
+                    </a>
+                    {item.hasSolution && (
+                      <a
+                        href={item.solutionUrl || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 px-3 rounded-lg transition-colors text-xs font-bold ${
+                          item.solutionUrl
+                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                            : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
+                        }`}
+                        title={item.solutionUrl ? 'View Solution' : 'No solution'}
+                        onClick={(e) => !item.solutionUrl && e.preventDefault()}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.solutionUrl ? 'lightbulb' : 'block'}
+                        </span>
+                        <span>Solution</span>
+                      </a>
+                    )}
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                      title="Edit"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id!)}
+                      className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                      title="Delete"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </>
         )}
       </div>
 
@@ -498,26 +642,41 @@ const AdminSeries: React.FC = () => {
               </button>
             </div>
 
-            {/* Important Notice */}
-            <div className="mx-6 mt-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
-              <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-red-600 text-2xl flex-shrink-0">
-                  warning
-                </span>
-                <div>
-                  <h4 className="font-bold text-red-900 mb-1">⚠️ IMPORTANT: Make Files Public!</h4>
-                  <p className="text-sm text-red-800 mb-2">
-                    Students will see "Sign in to Google" if files are not public.
-                  </p>
-                  <div className="text-xs text-red-700 space-y-1">
-                    <p><strong>1.</strong> Open file in Google Drive</p>
-                    <p><strong>2.</strong> Right-click → Share</p>
-                    <p><strong>3.</strong> Change to <strong>"Anyone with the link"</strong></p>
-                    <p><strong>4.</strong> Set permission to <strong>"Viewer"</strong></p>
+            {/* Show Original Title When Editing */}
+            {editingSeries && (
+              <div className="sticky top-0 z-10 mx-6 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-900">
+                  <strong>Original Title:</strong> <span className="text-blue-700">{editingSeries.title}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Important Notice - Dismissable */}
+            {showWarning && (
+              <div 
+                onClick={() => setShowWarning(false)}
+                className="mx-6 mt-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg cursor-pointer hover:bg-red-100 transition-colors"
+                title="Click to dismiss"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="material-symbols-outlined text-red-600 text-2xl flex-shrink-0">
+                    warning
+                  </span>
+                  <div className="flex-1">
+                    <h4 className="font-bold text-red-900 mb-1">⚠️ Important: Make file public</h4>
+                    <p className="text-sm text-red-800">
+                      Right-click file → Share → Change to "Anyone with the link"
+                    </p>
+                    <p className="text-xs text-red-700 mt-1">
+                      This prevents login prompts for students. Leave empty if you only have the solution.
+                    </p>
                   </div>
+                  <span className="material-symbols-outlined text-red-400 text-sm">
+                    close
+                  </span>
                 </div>
               </div>
-            </div>
+            )}
 
             <form
               onSubmit={handleSubmit}
@@ -530,9 +689,14 @@ const AdminSeries: React.FC = () => {
                   </label>
                   <select
                     value={formData.courseId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, courseId: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const selectedCourse = courses.find(c => c.id === e.target.value);
+                      setFormData({ 
+                        ...formData, 
+                        courseId: e.target.value,
+                        language: selectedCourse?.language || "fr" // Auto-set from course
+                      });
+                    }}
                     className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
                     required
                   >
@@ -540,6 +704,7 @@ const AdminSeries: React.FC = () => {
                     {courses.map((course) => (
                       <option key={course.id} value={course.id}>
                         {course.code} - {course.name} ({course.level}) - Prof. {course.professor}
+                        {course.language && ` [${course.language === 'fr' ? '🇫🇷 FR' : '🇬🇧 EN'}]`}
                       </option>
                     ))}
                   </select>
@@ -585,11 +750,84 @@ const AdminSeries: React.FC = () => {
                             courses.find((c) => c.id === formData.courseId)
                               ?.academicYear
                           }
+                          {courses.find((c) => c.id === formData.courseId)?.language && (
+                            <span>
+                              {" "}• Language:{" "}
+                              {courses.find((c) => c.id === formData.courseId)?.language === 'fr' ? '🇫🇷 Français' : '🇬🇧 English'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
                 </div>
 
+                {/* Title Mode Toggle */}
+                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                  <label className="block text-sm font-bold text-slate-700 mb-3">
+                    Title Input Mode *
+                  </label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="titleMode"
+                        value="auto"
+                        checked={formData.titleMode === "auto"}
+                        onChange={(e) =>
+                          setFormData({ ...formData, titleMode: "auto" })
+                        }
+                        className="w-4 h-4 text-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                      <span className="text-sm font-medium text-slate-700">
+                        🤖 Auto-generate
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="titleMode"
+                        value="manual"
+                        checked={formData.titleMode === "manual"}
+                        onChange={(e) =>
+                          setFormData({ ...formData, titleMode: "manual" })
+                        }
+                        className="w-4 h-4 text-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                      <span className="text-sm font-medium text-slate-700">
+                        ✏️ Manual entry
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Manual Title Input */}
+                {formData.titleMode === "manual" && (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">
+                      Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.title}
+                      onChange={(e) =>
+                        setFormData({ ...formData, title: e.target.value })
+                      }
+                      className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      placeholder="e.g., TD1 : Logique Mathematique : 2023 2024"
+                      required={formData.titleMode === "manual"}
+                      autoFocus
+                      autoComplete="on"
+                      name="series-title"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Enter the complete title manually
+                    </p>
+                  </div>
+                )}
+
+                {/* Auto-generation fields - only show in auto mode */}
+                {formData.titleMode === "auto" && (
+                  <>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">
@@ -611,25 +849,171 @@ const AdminSeries: React.FC = () => {
                       <option value="Exam">Exam</option>
                     </select>
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">
+                      Language *
+                    </label>
+                    <select
+                      value={formData.language}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          language: e.target.value as "fr" | "en",
+                        })
+                      }
+                      className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      required
+                    >
+                      <option value="fr">🇫🇷 Français (TD/TP/Examen)</option>
+                      <option value="en">🇬🇧 English (TW/PW/Exam)</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    Title *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) =>
-                      setFormData({ ...formData, title: e.target.value })
-                    }
-                    autoFocus
-                    className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                    placeholder="e.g., TD1: Introduction to Algorithms"
-                    required
-                  />
-                </div>
+                {/* Structured inputs for TD/TP */}
+                {(formData.type === "TD" || formData.type === "TP") && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          {formData.type} Number *
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={formData.seriesNumber}
+                          onChange={(e) =>
+                            setFormData({ ...formData, seriesNumber: e.target.value })
+                          }
+                          className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                          placeholder="1"
+                          required
+                          autoComplete="on"
+                          name="series-number"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          Academic Year <span className="text-slate-400 font-normal">(optional)</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="2010"
+                          max="2050"
+                          placeholder="2023"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val) {
+                              handleYearChange(parseInt(val));
+                            } else {
+                              setFormData({ ...formData, academicYear: "" });
+                            }
+                          }}
+                          className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                          autoComplete="on"
+                          name="academic-year"
+                          list="year-suggestions"
+                        />
+                        {formData.academicYear && (
+                          <div className="text-xs text-slate-500 mt-1">
+                            Selected: {formData.academicYear}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">
+                        Chapter/Topic Title <span className="text-slate-400 font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.chapterTitle}
+                        onChange={(e) =>
+                          setFormData({ ...formData, chapterTitle: e.target.value })
+                        }
+                        className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        placeholder="e.g., Logique Mathematique"
+                        autoComplete="on"
+                        name="chapter-title"
+                        list="chapter-suggestions"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Add a descriptive title for the series content
+                      </p>
+                    </div>
+                  </div>
+                )}
 
+                {/* Structured inputs for Exam */}
+                {formData.type === "Exam" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">
+                        Exam Type *
+                      </label>
+                      <select
+                        value={formData.examType}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            examType: e.target.value as any,
+                          })
+                        }
+                        className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        required
+                      >
+                        <option value="Final">Final</option>
+                        <option value="TD">{formData.language === "fr" ? "TD" : "TW"}</option>
+                        <option value="TP">{formData.language === "fr" ? "TP" : "PW"}</option>
+                        <option value="Rattrapage">Rattrapage</option>
+                        <option value="Devoir">Devoir</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">
+                        Academic Year *
+                      </label>
+                      <input
+                        type="number"
+                        min="2010"
+                        max="2050"
+                        defaultValue={2023}
+                        onChange={(e) => handleYearChange(parseInt(e.target.value))}
+                        className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        placeholder="2023"
+                        required
+                        autoComplete="on"
+                        name="exam-year"
+                        list="year-suggestions"
+                      />
+                      <div className="text-xs text-slate-500 mt-1">
+                        Selected: {formData.academicYear}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview generated title - only in auto mode */}
+                {formData.titleMode === "auto" && (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="material-symbols-outlined text-green-600">auto_awesome</span>
+                      <span className="text-sm font-bold text-green-900">Auto-Generated Title:</span>
+                    </div>
+                    <div className="text-lg font-mono font-bold text-green-700">
+                      {generateTitle() || "(Fill fields above)"}
+                    </div>
+                    <div className="text-xs text-green-600 mt-1">
+                      Will be saved as: {formatTitle(generateTitle())}
+                    </div>
+                  </div>
+                )}
+                </>
+                )}
+
+                {/* Drive URLs section */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">
                     <span className="material-symbols-outlined text-lg align-middle mr-1">
@@ -646,6 +1030,8 @@ const AdminSeries: React.FC = () => {
                     className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
                     placeholder="https://drive.google.com/... (Optional if only solution)"
                     required={!formData.hasSolution}
+                    autoComplete="on"
+                    name="drive-url"
                   />
                   <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="flex items-start gap-2">
@@ -702,6 +1088,8 @@ const AdminSeries: React.FC = () => {
                       }
                       className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       placeholder="https://drive.google.com/..."
+                      autoComplete="on"
+                      name="solution-url"
                     />
                     <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                       <div className="flex items-start gap-2">
@@ -716,6 +1104,30 @@ const AdminSeries: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Datalist for autocomplete suggestions */}
+              <datalist id="year-suggestions">
+                <option value="2020" />
+                <option value="2021" />
+                <option value="2022" />
+                <option value="2023" />
+                <option value="2024" />
+                <option value="2025" />
+                <option value="2026" />
+              </datalist>
+              
+              <datalist id="chapter-suggestions">
+                <option value="Logique Mathematique" />
+                <option value="Algebre" />
+                <option value="Analyse" />
+                <option value="Probabilites" />
+                <option value="Statistiques" />
+                <option value="Algorithmique" />
+                <option value="Structures de Donnees" />
+                <option value="Bases de Donnees" />
+                <option value="Reseaux" />
+                <option value="Programmation" />
+              </datalist>
 
               <div className="p-6 pt-4 border-t border-slate-100 flex gap-3 flex-shrink-0 bg-slate-50">
                 <button
@@ -736,6 +1148,22 @@ const AdminSeries: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Fixed Floating Add Button */}
+      <button
+        onClick={() => {
+          // Auto-select filtered course if one is selected
+          if (selectedCourseId !== "all") {
+            setFormData(prev => ({ ...prev, courseId: selectedCourseId }));
+          }
+          setIsModalOpen(true);
+        }}
+        className="fixed bottom-8 right-8 px-6 py-4 bg-primary hover:bg-primary/90 text-white font-bold rounded-full transition-all shadow-lg hover:shadow-xl flex items-center gap-2 z-40"
+        title="Add New Series"
+      >
+        <span className="material-symbols-outlined text-2xl">add</span>
+        <span className="hidden md:inline">Add Series</span>
+      </button>
 
       {/* Notification Dialog */}
       {notification && (

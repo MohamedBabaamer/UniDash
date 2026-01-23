@@ -76,11 +76,54 @@ const ExamSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="p-6 md:p-10 max-w-4xl mx-auto flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          <p className="mt-4 text-slate-500">Loading settings...</p>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-100 z-50 flex items-center justify-center">
+        <div className="text-center space-y-8 p-8">
+          <div className="relative inline-block">
+            <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl animate-pulse"></div>
+            <div className="relative bg-white rounded-3xl p-8 shadow-2xl border border-slate-200">
+              <span className="material-symbols-outlined text-7xl text-primary animate-bounce">
+                settings
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-center items-center gap-3">
+            <div className="relative w-20 h-20">
+              <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" style={{ animationDuration: '0.6s' }}></div>
+              <div className="absolute inset-2 border-4 border-slate-100 rounded-full"></div>
+              <div className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.5s' }}></div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              Loading Settings
+            </h2>
+            <p className="text-slate-500 font-medium">
+              Preparing exam configuration...
+            </p>
+            
+            <div className="flex justify-center gap-2 pt-2">
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+          </div>
+
+          <div className="w-64 mx-auto">
+            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full" style={{ width: '100%', animation: 'shimmer 0.8s ease-in-out infinite' }}></div>
+            </div>
+          </div>
         </div>
+
+        <style>{`
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+          }
+        `}</style>
       </div>
     );
   }
