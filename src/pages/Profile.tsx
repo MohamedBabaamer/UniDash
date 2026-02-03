@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { Link } from 'react-router-dom';
 import { getUserProfile, updateUserProfile, clearAllUserData } from '../services/database.service';
 import type { UserProfile } from '../types/types';
 
@@ -312,6 +313,10 @@ const Profile: React.FC = () => {
                   </>
                 ) : (
                   <>
+                    <Link to="/" className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 md:px-5 py-2 sm:py-2.5 bg-white/95 backdrop-blur-sm border-2 border-slate-200 text-slate-700 font-bold rounded-lg sm:rounded-xl text-xs sm:text-sm shadow-lg hover:bg-white hover:scale-105 transition-all">
+                      <span className="material-symbols-outlined text-[18px] sm:text-[20px]">home</span>
+                      <span className="hidden md:inline">Home</span>
+                    </Link>
                     <button 
                       onClick={handleClearData}
                       className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 md:px-4 py-2 sm:py-2.5 bg-white/95 backdrop-blur-sm border-2 border-red-200 text-red-700 font-bold rounded-lg sm:rounded-xl text-xs sm:text-sm shadow-lg hover:bg-white hover:border-red-300 hover:scale-105 transition-all"

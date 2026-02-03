@@ -11,7 +11,8 @@ import {
   where,
   orderBy,
   Timestamp,
-  writeBatch
+  writeBatch,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from '../config/firebase.config';
 import type { Course, StudentPayment, UserProfile, Resource, Exam, Series } from '../types';
@@ -118,7 +119,26 @@ export const getResourcesByCourseId = async (courseId: string): Promise<Resource
 };
 
 export const createResource = async (resource: Omit<Resource, 'id'>): Promise<string> => {
-  const docRef = await addDoc(collection(db, 'resources'), resource);
+  // Ensure chapterNumber is assigned persistently if missing (null or undefined)
+  let toCreate = { ...resource } as any;
+  if (toCreate.chapterNumber == null) {
+    const counterRef = doc(db, 'counters', resource.courseId);
+    await runTransaction(db, async (tx) => {
+      const counterSnap = await tx.get(counterRef as any);
+      if (!counterSnap.exists()) {
+        // Initialize so the first assigned chapterNumber is 1, nextChapter becomes 2
+        tx.set(counterRef as any, { nextChapter: 2, nextTD: 1, nextTP: 1 });
+        toCreate.chapterNumber = 1;
+      } else {
+        const data = counterSnap.data() as any;
+        const next = data.nextChapter ?? 1;
+        toCreate.chapterNumber = next;
+        tx.update(counterRef as any, { nextChapter: next + 1 });
+      }
+    });
+  }
+
+  const docRef = await addDoc(collection(db, 'resources'), toCreate);
   return docRef.id;
 };
 
@@ -177,8 +197,61 @@ export const getAllSeries = async (): Promise<Series[]> => {
 };
 
 export const createSeries = async (series: Omit<Series, 'id'>): Promise<string> => {
-  const docRef = await addDoc(collection(db, 'series'), series);
+  // Assign a persistent sequence number per course and type (TD/TP) when missing
+  let toCreate = { ...series } as any;
+  if (toCreate.sequenceNumber == null && (series.type === 'TD' || series.type === 'TP')) {
+    const counterRef = doc(db, 'counters', series.courseId);
+    await runTransaction(db, async (tx) => {
+      const counterSnap = await tx.get(counterRef as any);
+      if (!counterSnap.exists()) {
+        // Initialize nextTD so the first TD gets sequenceNumber 1 and nextTD becomes 2
+        tx.set(counterRef as any, { nextChapter: 1, nextTD: 2, nextTP: 1 });
+        toCreate.sequenceNumber = 1;
+      } else {
+        const data = counterSnap.data() as any;
+        if (series.type === 'TD') {
+          const next = data.nextTD ?? 1;
+          toCreate.sequenceNumber = next;
+          tx.update(counterRef as any, { nextTD: next + 1 });
+        } else if (series.type === 'TP') {
+          const next = data.nextTP ?? 1;
+          toCreate.sequenceNumber = next;
+          tx.update(counterRef as any, { nextTP: next + 1 });
+        }
+      }
+    });
+  }
+
+  const docRef = await addDoc(collection(db, 'series'), toCreate);
   return docRef.id;
+};
+
+// NOTE: For production systems, consider moving sequence/counter increments to a trusted
+// server-side function (Cloud Function) instead of relying on client-run Firestore transactions.
+// This prevents abuse and centralizes business logic. See `/functions/README.md` for a scaffold.
+
+// Get next course code number for a given prefix (e.g., 'CS')
+export const getNextCourseCode = async (prefix: string): Promise<string> => {
+  const codesRef = doc(db, 'counters', 'courseCodes');
+  let nextCode = '';
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(codesRef as any);
+    if (!snap.exists()) {
+      // Start course codes at 100 (e.g., CS100). If you want a different start, update the counters doc.
+      const initial = {} as any;
+      initial[prefix] = 100;
+      tx.set(codesRef as any, initial);
+      nextCode = `${prefix}${initial[prefix]}`;
+    } else {
+      const data = snap.data() as any;
+      const current = data[prefix] ?? 100; // default start at 100 if not present
+      nextCode = `${prefix}${current + 1}`;
+      data[prefix] = current + 1;
+      tx.update(codesRef as any, { [prefix]: data[prefix] });
+    }
+  });
+
+  return nextCode;
 };
 
 export const updateSeries = async (id: string, updates: Partial<Series>): Promise<void> => {
@@ -264,4 +337,11 @@ export const clearAllExams = async (): Promise<void> => {
   const batch = writeBatch(db);
   querySnapshot.docs.forEach(doc => batch.delete(doc.ref));
   await batch.commit();
+};
+
+// ==================== RESOURCES (ALL) ====================
+
+export const getAllResources = async (): Promise<Resource[]> => {
+  const querySnapshot = await getDocs(collection(db, 'resources'));
+  return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Resource));
 };

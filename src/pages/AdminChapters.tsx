@@ -12,6 +12,8 @@ const AdminChapters: React.FC = () => {
   const [resources, setResources] = useState<Resource[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
+  const [courseSearch, setCourseSearch] = useState<string>('');
+  const [resourceFilter, setResourceFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -21,12 +23,13 @@ const AdminChapters: React.FC = () => {
   
   const [formData, setFormData] = useState({
     title: '',
-    chapterNumber: 1,
+    chapterNumber: '' as number | string,
     description: '',
     date: new Date().toISOString().split('T')[0],
     driveUrl: '',
     resourceType: 'chapter' as 'chapter' | 'book'
   });
+  const [autoNumber, setAutoNumber] = useState<boolean>(true);
 
   // Format title by replacing _ and - with spaces, but keep year ranges like 2024-2025
   const formatTitle = (title: string): string => {
@@ -59,6 +62,44 @@ const AdminChapters: React.FC = () => {
       fetchResources();
     }
   }, [selectedCourseId]);
+
+  // Filtered courses by search (code, name, professor, level)
+  const filteredCourses = courses.filter((c) => {
+    if (!courseSearch) return true;
+    const q = courseSearch.trim().toLowerCase();
+    return (
+      (c.code || '').toLowerCase().includes(q) ||
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.professor || '').toLowerCase().includes(q) ||
+      (c.level || '').toLowerCase().includes(q) ||
+      (c.academicYear || '').toLowerCase().includes(q)
+    );
+  });
+
+  // Keep selectedCourseId in sync: if current selection is filtered out, pick the first match.
+  useEffect(() => {
+    if (!courseSearch) return; // only adjust when searching
+    if (filteredCourses.length === 0) {
+      // no match: clear selection
+      setSelectedCourseId('');
+      return;
+    }
+    const exists = filteredCourses.some(c => c.id === selectedCourseId);
+    if (!exists) {
+      setSelectedCourseId(filteredCourses[0].id);
+    }
+  }, [courseSearch, courses]);
+
+  // Filtered resources by title/description/number when showing chapters
+  const filteredResources = resources.filter((r) => {
+    if (!resourceFilter) return true;
+    const q = resourceFilter.toLowerCase();
+    return (
+      (r.title || '').toLowerCase().includes(q) ||
+      (r.description || '').toLowerCase().includes(q) ||
+      (r.chapterNumber !== undefined && String(r.chapterNumber).includes(q))
+    );
+  });
 
   const fetchCourses = async () => {
     try {
@@ -93,12 +134,14 @@ const AdminChapters: React.FC = () => {
     setEditingResource(resource);
     setFormData({
       title: resource.title,
-      chapterNumber: resource.chapterNumber || 1,
+      chapterNumber: resource.chapterNumber ?? '',
       description: resource.description || '',
       date: resource.date,
       driveUrl: resource.driveUrl,
       resourceType: (resource as any).resourceType || 'chapter'
     });
+    // When editing, disable auto-number if there is an existing chapter number
+    setAutoNumber(resource.chapterNumber == null);
     setIsEditing(true);
     setIsModalOpen(true);
   };
@@ -130,12 +173,16 @@ const AdminChapters: React.FC = () => {
     try {
       const resourceData: any = {
         title: formatTitle(formData.title), // Format title before saving
-        chapterNumber: formData.chapterNumber,
         driveUrl: formData.driveUrl,
         date: formData.date,
         courseId: selectedCourseId,
         resourceType: formData.resourceType
       };
+
+      // Only include chapterNumber when user explicitly provided it (autoNumber = false)
+      if (formData.resourceType === 'chapter' && !autoNumber && formData.chapterNumber !== '' && formData.chapterNumber !== null) {
+        resourceData.chapterNumber = Number(formData.chapterNumber);
+      }
 
       // Only add optional fields if they have values
       if (formData.description) {
@@ -157,12 +204,13 @@ const AdminChapters: React.FC = () => {
       // Reset form
       setFormData({
         title: '',
-        chapterNumber: 1,
+        chapterNumber: '' as number | string,
         description: '',
         date: new Date().toISOString().split('T')[0],
         driveUrl: '',
         resourceType: 'chapter'
       });
+      setAutoNumber(true);
       setIsEditing(false);
       setEditingResource(null);
       setIsModalOpen(false);
@@ -179,7 +227,7 @@ const AdminChapters: React.FC = () => {
   const handleCancel = () => {
     setFormData({
       title: '',
-      chapterNumber: 1,
+      chapterNumber: '' as number | string,
       description: '',
       date: new Date().toISOString().split('T')[0],
       driveUrl: '',
@@ -187,6 +235,7 @@ const AdminChapters: React.FC = () => {
     });
     setIsEditing(false);
     setEditingResource(null);
+    setAutoNumber(true);
     setIsModalOpen(false);
   };
 
@@ -207,12 +256,29 @@ const AdminChapters: React.FC = () => {
         <label className="block text-sm font-bold text-slate-700 mb-2">
           Select Course/Module
         </label>
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            placeholder="Search courses by code, name or professor"
+            value={courseSearch}
+            onChange={(e) => setCourseSearch(e.target.value)}
+            className="w-full md:w-72 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary font-medium"
+          />
+          <button
+            type="button"
+            onClick={() => setCourseSearch('')}
+            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+            title="Clear"
+          >
+            Clear
+          </button>
+        </div>
         <select
           value={selectedCourseId}
           onChange={(e) => setSelectedCourseId(e.target.value)}
           className="w-full md:w-96 px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary font-medium"
         >
-          {courses.map((course) => (
+          {filteredCourses.map((course) => (
             <option key={course.id} value={course.id}>
               {course.code} - {course.name} ({course.level}) - {course.academicYear}
             </option>
@@ -232,9 +298,20 @@ const AdminChapters: React.FC = () => {
             <span className="material-symbols-outlined text-primary">library_books</span>
             Chapters for {selectedCourse?.name || 'Selected Course'}
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            {resources.length} chapter{resources.length !== 1 ? 's' : ''} available
-          </p>
+          <div className="mt-2 flex items-center gap-3">
+            <p className="text-sm text-slate-500">
+              {filteredResources.length} chapter{filteredResources.length !== 1 ? 's' : ''} shown
+            </p>
+            <div className="flex-1">
+              <input
+                type="search"
+                placeholder="Filter chapters by title, description, or number"
+                value={resourceFilter}
+                onChange={(e) => setResourceFilter(e.target.value)}
+                className="w-full md:w-96 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -246,6 +323,11 @@ const AdminChapters: React.FC = () => {
           <div className="p-12 text-center text-slate-400">
             <span className="material-symbols-outlined text-6xl mb-4">library_books</span>
             <p>No chapters added yet for this course.</p>
+          </div>
+        ) : filteredResources.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">
+            <span className="material-symbols-outlined text-6xl mb-4">search_off</span>
+            <p>No chapters match your search/filter.</p>
           </div>
         ) : (
           <>
@@ -278,7 +360,7 @@ const AdminChapters: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {resources.map((resource) => (
+                {filteredResources.map((resource) => (
                   <tr key={resource.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-4">
                       <span className={`px-2 py-1 rounded text-xs font-bold ${
@@ -341,8 +423,8 @@ const AdminChapters: React.FC = () => {
           </div>
           
           {/* Mobile Card View */}
-          <div className="xl:hidden divide-y divide-slate-200">
-            {resources.map((resource) => (
+            <div className="xl:hidden divide-y divide-slate-200">
+            {filteredResources.map((resource) => (
               <div key={resource.id} className="p-4 hover:bg-slate-50 transition-colors">
                 <div className="flex items-start gap-3 mb-3">
                   <span className={`px-2 py-1 rounded text-xs font-bold flex-shrink-0 ${
@@ -405,7 +487,21 @@ const AdminChapters: React.FC = () => {
 
       {/* Fixed Floating Add Button */}
       <button
-        onClick={() => setIsModalOpen(true)}
+        onClick={() => {
+          // Prepare modal for creating a new chapter
+          setIsModalOpen(true);
+          setIsEditing(false);
+          setEditingResource(null);
+          setFormData({
+            title: '',
+            chapterNumber: '' as number | string,
+            description: '',
+            date: new Date().toISOString().split('T')[0],
+            driveUrl: '',
+            resourceType: 'chapter'
+          });
+          setAutoNumber(true);
+        }}
         className="fixed bottom-8 right-8 px-6 py-4 bg-primary hover:bg-primary/90 text-white font-bold rounded-full transition-all shadow-lg hover:shadow-xl flex items-center gap-2 z-40"
         title="Add New Chapter"
       >
@@ -510,14 +606,28 @@ const AdminChapters: React.FC = () => {
                     <label className="block text-sm font-bold text-slate-700 mb-2">
                       Chapter N° {formData.resourceType === 'book' && <span className="text-slate-400 font-normal">(optional)</span>}
                     </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={autoNumber}
+                        onChange={(e) => setAutoNumber(e.target.checked)}
+                        id="autoNumber"
+                        className="w-4 h-4 text-primary focus:ring-2 focus:ring-primary/20"
+                        disabled={formData.resourceType === 'book'}
+                        title="When checked, chapter number is auto-assigned"
+                      />
+                      <label htmlFor="autoNumber" className="text-sm text-slate-700">Auto-assign chapter number</label>
+                    </div>
+
                     <input
                       type="number"
                       min="1"
                       value={formData.chapterNumber}
-                      onChange={(e) => setFormData({ ...formData, chapterNumber: parseInt(e.target.value) || 1 })}
-                      className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      required={formData.resourceType === 'chapter'}
-                      disabled={formData.resourceType === 'book'}
+                      onChange={(e) => setFormData({ ...formData, chapterNumber: e.target.value === '' ? '' : parseInt(e.target.value) })}
+                      className="w-full mt-2 px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      placeholder={autoNumber ? 'Auto-assigned on create' : 'Enter chapter number'}
+                      required={false}
+                      disabled={formData.resourceType === 'book' || autoNumber}
                     />
                   </div>
                   <div className="col-span-3">

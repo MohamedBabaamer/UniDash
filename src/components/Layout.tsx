@@ -8,7 +8,7 @@ const Layout: React.FC = () => {
   const [seriesCount, setSeriesCount] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
-  const { isAdmin, userProfile } = useAuth();
+  const { isAdmin, userProfile, logout } = useAuth();
 
   const isAdminRoute = location.pathname.includes('admin');
 
@@ -29,59 +29,60 @@ const Layout: React.FC = () => {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-slate-900 font-sans">
-      {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-slate-200 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="h-full flex flex-col">
-          {/* Logo */}
-          <div className="p-6 flex items-center gap-3">
-            <div className={`size-8 rounded-lg flex items-center justify-center text-white ${isAdminRoute ? 'bg-slate-900' : 'bg-primary'}`}>
-              <span className="material-symbols-outlined text-[20px]">school</span>
+      {/* Sidebar (admin only) */}
+      {isAdmin && (
+        <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-slate-200 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="h-full flex flex-col">
+            {/* Logo */}
+            <div className="p-6 flex items-center gap-3">
+              <div className={`size-8 rounded-lg flex items-center justify-center text-white ${isAdminRoute ? 'bg-slate-900' : 'bg-primary'}`}>
+                <span className="material-symbols-outlined text-[20px]">school</span>
+              </div>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight">{isAdminRoute ? 'AdminPortal' : 'UniDash'}</h1>
+                <p className="text-xs text-slate-500">{isAdminRoute ? 'Admin Access' : 'Student Portal'}</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">{isAdminRoute ? 'AdminPortal' : 'UniDash'}</h1>
-              <p className="text-xs text-slate-500">{isAdminRoute ? 'Admin Access' : 'Student Portal'}</p>
-            </div>
-          </div>
 
-          {/* User Snippet */}
-          {!isAdminRoute && userProfile && (
-            <div className="px-6 pb-6">
-              <Link to="/profile" className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100 hover:border-primary/30 transition-all cursor-pointer group">
-                <div className="size-10 rounded-full bg-cover bg-center flex items-center justify-center bg-primary text-white font-bold" style={{ backgroundImage: userProfile.photoURL ? `url(${userProfile.photoURL})` : undefined }}>
-                  {!userProfile.photoURL && (userProfile.displayName?.[0] || userProfile.email?.[0] || 'U').toUpperCase()}
-                </div>
-                <div className="flex flex-col overflow-hidden flex-1">
-                  <h2 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">
-                    {userProfile.displayName || 'Student'}
-                  </h2>
-                  <p className="text-xs text-slate-500 truncate">
-                    {userProfile.studentId || userProfile.email}
-                  </p>
-                </div>
-              </Link>
-              
-              {/* Additional Info */}
-              {(userProfile.phone || userProfile.address) && (
-                <div className="mt-3 px-3 space-y-2">
-                  {userProfile.phone && (
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span className="material-symbols-outlined text-[14px]">phone</span>
-                      <span className="truncate">{userProfile.phone}</span>
-                    </div>
-                  )}
-                  {userProfile.address && (
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span className="material-symbols-outlined text-[14px]">location_on</span>
-                      <span className="truncate">{userProfile.address}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+            {/* User Snippet (only shown in admin sidebar if needed) */}
+            {!isAdminRoute && userProfile && (
+              <div className="px-6 pb-6">
+                <Link to="/profile" className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100 hover:border-primary/30 transition-all cursor-pointer group">
+                  <div className="size-10 rounded-full bg-cover bg-center flex items-center justify-center bg-primary text-white font-bold" style={{ backgroundImage: userProfile.photoURL ? `url(${userProfile.photoURL})` : undefined }}>
+                    {!userProfile.photoURL && (userProfile.displayName?.[0] || userProfile.email?.[0] || 'U').toUpperCase()}
+                  </div>
+                  <div className="flex flex-col overflow-hidden flex-1">
+                    <h2 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">
+                      {userProfile.displayName || 'Student'}
+                    </h2>
+                    <p className="text-xs text-slate-500 truncate">
+                      {userProfile.studentId || userProfile.email}
+                    </p>
+                  </div>
+                </Link>
+                
+                {/* Additional Info */}
+                {(userProfile.phone || userProfile.address) && (
+                  <div className="mt-3 px-3 space-y-2">
+                    {userProfile.phone && (
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <span className="material-symbols-outlined text-[14px]">phone</span>
+                        <span className="truncate">{userProfile.phone}</span>
+                      </div>
+                    )}
+                    {userProfile.address && (
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <span className="material-symbols-outlined text-[14px]">location_on</span>
+                        <span className="truncate">{userProfile.address}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-          {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto px-4 space-y-1">
+            {/* Navigation */}
+            <nav className="flex-1 overflow-y-auto px-4 space-y-1">
             <div className="px-2 mb-2 mt-2">
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Main Menu</span>
             </div>
@@ -122,7 +123,7 @@ const Layout: React.FC = () => {
                   <div className="flex-1 flex items-center justify-between">
                     <span className="text-sm">Manage Series (TD/TP/Exam)</span>
                     {seriesCount > 0 && (
-                      <span className="px-2 py-0.5 bg-primary text-white text-xs font-bold rounded-full">
+                      <span className="badge badge-primary text-xs font-bold">
                         {seriesCount}
                       </span>
                     )}
@@ -138,19 +139,25 @@ const Layout: React.FC = () => {
                   <span className="material-symbols-outlined">schedule</span>
                   <span className="text-sm">Exam Settings</span>
                 </NavLink>
+
+                <NavLink to="/admin/firestore-summary" className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive ? 'bg-slate-800 text-white font-medium shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}>
+                  <span className="material-symbols-outlined">storage</span>
+                  <span className="text-sm">Firestore Summary</span>
+                </NavLink>
               </>
             )}
           </nav>
 
           {/* Sidebar Footer */}
           <div className="p-4 border-t border-slate-200">
-             <button onClick={() => navigate('/login')} className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+             <button onClick={async () => { await logout(); navigate('/login'); }} className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
               <span className="material-symbols-outlined">logout</span>
               <span className="text-sm font-medium">Log out</span>
             </button>
           </div>
         </div>
       </aside>
+      )}
 
       {/* Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -170,6 +177,9 @@ const Layout: React.FC = () => {
             <button className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
               <span className="material-symbols-outlined">notifications</span>
               <span className="absolute top-2 right-2 size-2 bg-red-500 rounded-full border-2 border-white"></span>
+            </button>
+            <button onClick={async () => { await logout(); navigate('/login'); }} title="Log out" className="p-2 text-slate-600 hover:bg-slate-50 rounded-md">
+              <span className="material-symbols-outlined">logout</span>
             </button>
             <Link 
               to="/profile" 

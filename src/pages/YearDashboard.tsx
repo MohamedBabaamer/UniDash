@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { Course } from '../types';
 import { getAllCourses } from '../services/database.service';
 
@@ -17,6 +18,8 @@ const YearDashboard: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'Active' | 'Completed' | 'Upcoming'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [bookmarkedCourses, setBookmarkedCourses] = useState<Set<string>>(new Set());
+  const [sortBy, setSortBy] = useState<'code'|'name'|'professor'|'credits'>('code');
+  const [bookmarkedOnly, setBookmarkedOnly] = useState<boolean>(false);
   const [courseProgress, setCourseProgress] = useState<Record<string, {
     viewedChapters: Set<string>;
     viewedTD: Set<string>;
@@ -192,6 +195,17 @@ const YearDashboard: React.FC = () => {
   // Get available academic years from all courses
   const availableYears = getAllAcademicYears(courses);
 
+  const { isAdmin } = useAuth();
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.error('Copy failed', e);
+    }
+  };
+
+
   // Check if two academic year ranges intersect
   const academicYearsIntersect = (year1: string, year2: string): boolean => {
     const parts1 = year1.split('-');
@@ -210,7 +224,7 @@ const YearDashboard: React.FC = () => {
   };
 
   // Filter courses by selected level, semester, year, search, and status
-  const filteredCourses = courses.filter(course => {
+  let filteredCourses = courses.filter(course => {
     const matchesLevel = course.level === selectedLevel;
     const matchesSemester = course.semester === selectedSemester;
     // Check if selected year intersects with course's academicYear
@@ -223,6 +237,57 @@ const YearDashboard: React.FC = () => {
     
     return matchesLevel && matchesSemester && matchesYear && matchesSearch && matchesStatus;
   });
+
+  if (bookmarkedOnly) {
+    filteredCourses = filteredCourses.filter(c => bookmarkedCourses.has(c.id));
+  }
+
+  // Apply sorting
+  const displayCourses = [...filteredCourses].sort((a,b) => {
+    if (sortBy === 'code') return (a.code || '').localeCompare(b.code || '');
+    if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '');
+    if (sortBy === 'professor') return (a.professor || '').localeCompare(b.professor || '');
+    return (b.credits || 0) - (a.credits || 0);
+  });
+
+  // CSV export for currently displayed courses
+  const exportCoursesCSV = () => {
+    const rows = displayCourses.map(c => ({
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      professor: c.professor,
+      level: c.level,
+      semester: c.semester,
+      academicYear: c.academicYear,
+      credits: c.credits,
+      status: c.status,
+    }));
+    const header = Object.keys(rows[0] || {}).join(',') + '\n';
+    const csv = header + rows.map(r => Object.values(r).map(v => `"${String(v || '')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `courses_${selectedLevel}_${selectedYear}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Derived relations for sidebar based on displayed courses
+  const bookmarkedList = displayCourses.filter(c => bookmarkedCourses.has(c.id));
+
+  const professorsMap: Record<string, Course[]> = {};
+  displayCourses.forEach(c => {
+    const key = c.professor || 'Unknown';
+    if (!professorsMap[key]) professorsMap[key] = [];
+    professorsMap[key].push(c);
+  });
+
+  const topProfessors = Object.keys(professorsMap)
+    .map(p => ({ name: p, count: professorsMap[p].length }))
+    .sort((a,b) => b.count - a.count)
+    .slice(0, 8);
 
   // Calculate course statistics
   const activeCourses = filteredCourses.filter(c => c.status === 'Active').length;
@@ -398,6 +463,31 @@ const YearDashboard: React.FC = () => {
             >
               Active
             </button>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm"
+            >
+              <option value="code">Sort: Code</option>
+              <option value="name">Sort: Name</option>
+              <option value="professor">Sort: Professor</option>
+              <option value="credits">Sort: Credits</option>
+            </select>
+
+            <button
+              onClick={() => setBookmarkedOnly(prev => !prev)}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors ${bookmarkedOnly ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              {bookmarkedOnly ? 'Bookmarked' : 'All'}
+            </button>
+
+            <button
+              onClick={() => exportCoursesCSV()}
+              className="ml-auto px-3 sm:px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              <span className="material-symbols-outlined">file_download</span>
+              <span className="ml-2 hidden sm:inline">Export CSV</span>
+            </button>
             <button
               onClick={() => setFilterStatus('Completed')}
               className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors ${
@@ -545,7 +635,7 @@ const YearDashboard: React.FC = () => {
               </div>
             ) : (
               <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6' : 'space-y-3 sm:space-y-4'}>
-                  {filteredCourses.map((course) => (
+                  {displayCourses.map((course) => (
                         <div key={course.id} className={`group flex ${viewMode === 'list' ? 'flex-col xs:flex-row xs:items-center' : 'flex-col'} bg-white rounded-xl sm:rounded-2xl ${viewMode === 'list' ? 'p-3 sm:p-4' : 'p-4 sm:p-5'} border border-slate-200 shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-300 hover:-translate-y-1 relative`}>
                             {/* Badges */}
                             {viewMode === 'grid' ? (
@@ -632,25 +722,45 @@ const YearDashboard: React.FC = () => {
                                     </span>
                                   )}
                                 </div>
-                                <Link 
-                                  to={`/course/${course.id}`} 
-                                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-primary hover:bg-primary/90 text-white text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1 whitespace-nowrap"
-                                >
-                                  <span className="material-symbols-outlined text-[12px] sm:text-[14px]">arrow_forward</span>
-                                  <span>View</span>
-                                </Link>
+                                <div className="flex items-center gap-2">
+                                  <Link 
+                                    to={`/course/${course.id}`} 
+                                    className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-primary hover:bg-primary/90 text-white text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1 whitespace-nowrap"
+                                  >
+                                    <span className="material-symbols-outlined text-[12px] sm:text-[14px]">arrow_forward</span>
+                                    <span>View</span>
+                                  </Link>
+                                  {/* Admin 'Manage' button removed - View opens course detail */}
+                                  <button
+                                    onClick={(e) => { e.preventDefault(); copyToClipboard(window.location.origin + `/course/${course.id}`); }}
+                                    className="px-2 py-1 bg-slate-100 rounded-lg text-slate-700 text-[10px] hover:bg-slate-200"
+                                    title="Copy course link"
+                                  >
+                                    <span className="material-symbols-outlined">link</span>
+                                  </button>
+                                </div>
                               </div>
                             )}
 
                             {viewMode === 'grid' && (
                               <div className="mt-auto pt-3 sm:pt-4 border-t border-slate-100 flex gap-1.5 sm:gap-2">
-                                  <Link 
-                                    to={`/course/${course.id}`} 
-                                    className="flex-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary hover:bg-primary/90 text-white text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1 whitespace-nowrap"
-                                  >
-                                    <span className="material-symbols-outlined text-[12px] sm:text-[14px]">arrow_forward</span>
-                                    <span>View Course</span>
-                                  </Link>
+                                  <div className="flex-1 flex gap-2">
+                                    <Link 
+                                      to={`/course/${course.id}`} 
+                                      className="flex-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary hover:bg-primary/90 text-white text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1 whitespace-nowrap"
+                                    >
+                                      <span className="material-symbols-outlined text-[12px] sm:text-[14px]">arrow_forward</span>
+                                      <span>View Course</span>
+                                    </Link>
+                                    {/* Admin 'Manage' icon removed from grid view */}
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); copyToClipboard(window.location.origin + `/course/${course.id}`); }}
+                                      className="px-3 py-1.5 bg-slate-100 rounded-lg text-slate-700 text-[10px] hover:bg-slate-200"
+                                      title="Copy course link"
+                                    >
+                                      <span className="material-symbols-outlined">link</span>
+                                    </button>
+                                  </div>
                               </div>
                             )}
                         </div>
@@ -692,6 +802,62 @@ const YearDashboard: React.FC = () => {
                 <button className="w-full mt-4 sm:mt-5 py-2 text-xs sm:text-sm font-medium text-slate-600 hover:text-primary border border-slate-200 rounded-lg transition-colors">
                     View Full Schedule
                 </button>
+            </div>
+
+            {/* Bookmarked Courses Widget */}
+            <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-3 sm:mb-4 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary text-lg sm:text-xl">bookmark</span>
+                  <span>Bookmarked</span>
+                </h3>
+                {bookmarkedList.length === 0 ? (
+                  <p className="text-sm text-slate-500">No bookmarked courses in current view.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {bookmarkedList.slice(0,6).map(c => (
+                      <div key={c.id} className="flex items-center justify-between">
+                        <Link to={`/course/${c.id}`} className="text-sm text-slate-800 truncate">{c.code} — {c.name}</Link>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => copyToClipboard(window.location.origin + `/course/${c.id}`)} className="text-slate-400 hover:text-slate-600" title="Copy link">
+                            <span className="material-symbols-outlined">link</span>
+                          </button>
+                          <button onClick={() => { toggleBookmark(c.id); }} className="text-amber-500" title="Remove bookmark">
+                            <span className="material-symbols-outlined">bookmark_remove</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {bookmarkedList.length > 6 && (
+                      <Link to="#" className="text-sm text-primary font-medium">View all bookmarks</Link>
+                    )}
+                  </div>
+                )}
+            </div>
+
+            {/* Professors Widget */}
+            <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-3 sm:mb-4 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary text-lg sm:text-xl">person</span>
+                  <span>Professors</span>
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {topProfessors.map(p => (
+                    <button key={p.name} onClick={() => { setSearchQuery(p.name); }} className="px-2 py-1 bg-slate-100 rounded text-sm text-slate-700 text-left">{p.name} <span className="text-xs text-slate-500 ml-2">{p.count}</span></button>
+                  ))}
+                </div>
+            </div>
+
+            {/* Quick Levels Widget */}
+            <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-3 sm:mb-4 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary text-lg sm:text-xl">layers</span>
+                  <span>Quick Levels</span>
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {['L1','L2','L3','M1','M2'].map(l => (
+                    <button key={l} onClick={() => setSelectedLevel(l as any)} className={`px-3 py-1 rounded-lg text-sm ${selectedLevel===l ? 'bg-primary text-white' : 'bg-slate-100 text-slate-700'}`}>{l}</button>
+                  ))}
+                </div>
             </div>
 
             {/* Resources Widget */}

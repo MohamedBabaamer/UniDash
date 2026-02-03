@@ -37,6 +37,12 @@ export interface Series {
   hasSolution: boolean;
   date: string;
   academicYear?: string;
+  sequenceNumber?: number; // Optional persistent sequence number for TD/TP
+  // Additional optional metadata
+  language?: 'fr' | 'en';
+  examType?: string;
+  seriesNumber?: string | number;
+  chapterTitle?: string;
 }
 
 
@@ -44,7 +50,7 @@ export interface Resource {
   id?: string;
   courseId: string;
   title: string;
-  chapterNumber: number; // Chapter number for ordering
+  chapterNumber?: number; // Chapter number for ordering
   description?: string;
   driveUrl: string; // Google Drive URL for the chapter
   date: string;
@@ -62,7 +68,7 @@ export interface Exam {
 
 export interface StudentPayment {
   id: string;
-  userId: string;
+  userId?: string;
   name: string;
   studentId: string;
   department: string;

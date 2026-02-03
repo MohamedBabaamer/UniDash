@@ -7,18 +7,19 @@ import {
   updateSeries,
   deleteSeries,
 } from "../services/database.service";
-// import TPMarkdownModal from "../components/TPMarkdownModal";
 
 const AdminSeries: React.FC = () => {
   const [series, setSeries] = useState<Series[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("All");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSeries, setEditingSeries] = useState<Series | null>(null);
   const [showWarning, setShowWarning] = useState(true);
   const [notification, setNotification] = useState<{
+    id?: string;
     type: "success" | "error";
     message: string;
   } | null>(null);
@@ -43,37 +44,52 @@ const AdminSeries: React.FC = () => {
 
   // Format title by replacing _ and - with spaces
   const formatTitle = (title: string): string => {
-    return title.replace(/[_-]/g, ' ');
+    return title.replace(/[_-]/g, " ");
   };
 
   // Auto-generate title based on type and inputs
   const generateTitle = (): string => {
-    const { type, language, seriesNumber, chapterTitle, academicYear, examType } = formData;
-    
+    const {
+      type,
+      language,
+      seriesNumber,
+      chapterTitle,
+      academicYear,
+      examType,
+    } = formData;
+
     if (type === "Exam") {
       // Examen_TD_2024-2025 (French) or Exam_TW_2024-2025 (English)
       const examPrefix = language === "fr" ? "Examen" : "Exam";
-      const examTypeMapped = examType === "TD" && language === "en" ? "TW" : 
-                            examType === "TP" && language === "en" ? "PW" : examType;
+      const examTypeMapped =
+        examType === "TD" && language === "en"
+          ? "TW"
+          : examType === "TP" && language === "en"
+            ? "PW"
+            : examType;
       return `${examPrefix}_${examTypeMapped}_${academicYear}`;
     } else {
       // TD/TP with optional chapter title and year
-      const typePrefix = type === "TD" && language === "en" ? "TW" : 
-                        type === "TP" && language === "en" ? "PW" : type;
-      
+      const typePrefix =
+        type === "TD" && language === "en"
+          ? "TW"
+          : type === "TP" && language === "en"
+            ? "PW"
+            : type;
+
       // Build parts: TD1, optional chapter, optional year
       const parts = [`${typePrefix}${seriesNumber}`];
-      
+
       if (chapterTitle.trim()) {
         parts.push(chapterTitle.trim());
       }
-      
+
       if (academicYear.trim()) {
         parts.push(academicYear.trim());
       }
-      
+
       // Join with " : " separator
-      return parts.join(' : ');
+      return parts.join(" : ");
     }
   };
 
@@ -143,7 +159,9 @@ const AdminSeries: React.FC = () => {
 
       const seriesData: any = {
         courseId: formData.courseId,
-        title: formatTitle(formData.titleMode === "auto" ? generateTitle() : formData.title), // Use auto or manual title
+        title: formatTitle(
+          formData.titleMode === "auto" ? generateTitle() : formData.title,
+        ), // Use auto or manual title
         type: formData.type,
         driveUrl: formData.driveUrl,
         hasSolution: formData.hasSolution,
@@ -160,16 +178,10 @@ const AdminSeries: React.FC = () => {
 
       if (editingSeries) {
         await updateSeries(editingSeries.id!, seriesData);
-        setNotification({
-          type: "success",
-          message: "Series updated successfully!",
-        });
+          setNotification({ id: String(Date.now()), type: "success", message: "Series updated successfully!" });
       } else {
         await createSeries(seriesData);
-        setNotification({
-          type: "success",
-          message: "Series created successfully!",
-        });
+        setNotification({ id: String(Date.now()), type: "success", message: "Series created successfully!" });
       }
 
       handleCloseModal();
@@ -177,22 +189,25 @@ const AdminSeries: React.FC = () => {
       setTimeout(() => setNotification(null), 3000);
     } catch (error: any) {
       console.error("Error saving series:", error);
-      setNotification({
-        type: "error",
-        message: error.message || "Failed to save series",
-      });
+      setNotification({ id: String(Date.now()), type: "error", message: error.message || "Failed to save series" });
     }
   };
 
   const handleEdit = (item: Series) => {
     setEditingSeries(item);
     setFormData({
-      courseId: item.courseId,
-      title: item.title,
-      type: item.type,
-      driveUrl: item.driveUrl,
+      courseId: item.courseId || "",
+      title: item.title || "",
+      titleMode: "auto", // Always default to auto mode on edit for safety
+      type: item.type || "TD",
+      driveUrl: item.driveUrl || "",
       solutionUrl: item.solutionUrl || "",
-      hasSolution: item.hasSolution,
+      hasSolution: !!item.hasSolution,
+      language: item.language || "fr",
+      seriesNumber: item.seriesNumber || "1",
+      chapterTitle: item.chapterTitle || "",
+      academicYear: item.academicYear || "",
+      examType: item.examType || "Final",
     });
     setIsModalOpen(true);
   };
@@ -218,7 +233,8 @@ const AdminSeries: React.FC = () => {
     setIsModalOpen(false);
     setEditingSeries(null);
     // Auto-select filtered course if one is selected, otherwise use first course
-    const defaultCourseId = selectedCourseId !== "all" ? selectedCourseId : (courses[0]?.id || "");
+    const defaultCourseId =
+      selectedCourseId !== "all" ? selectedCourseId : courses[0]?.id || "";
     setFormData({
       courseId: defaultCourseId,
       title: "",
@@ -240,7 +256,17 @@ const AdminSeries: React.FC = () => {
       const matchCourse =
         selectedCourseId === "all" || item.courseId === selectedCourseId;
       const matchType = filterType === "All" || item.type === filterType;
-      return matchCourse && matchType;
+      // Apply search filter (course code or professor) if provided
+      let matchesSearch = true;
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const course = courses.find((c) => c.id === item.courseId);
+        const code = course?.code?.toLowerCase() || "";
+        const prof = (course?.professor || "").toLowerCase();
+        const title = (item.title || "").toLowerCase();
+        matchesSearch = code.includes(q) || prof.includes(q) || title.includes(q);
+      }
+      return matchCourse && matchType && matchesSearch;
     })
     .sort((a, b) => a.title.localeCompare(b.title));
 
@@ -276,11 +302,20 @@ const AdminSeries: React.FC = () => {
             <div className="relative w-20 h-20">
               {/* Outer spinning ring */}
               <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
-              <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" style={{ animationDuration: '0.6s' }}></div>
-              
+              <div
+                className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"
+                style={{ animationDuration: "0.6s" }}
+              ></div>
+
               {/* Inner spinning ring (opposite direction) */}
               <div className="absolute inset-2 border-4 border-slate-100 rounded-full"></div>
-              <div className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.5s' }}></div>
+              <div
+                className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin"
+                style={{
+                  animationDirection: "reverse",
+                  animationDuration: "0.5s",
+                }}
+              ></div>
             </div>
           </div>
 
@@ -292,21 +327,34 @@ const AdminSeries: React.FC = () => {
             <p className="text-slate-500 font-medium">
               Preparing your content...
             </p>
-            
+
             {/* Animated Dots */}
             <div className="flex justify-center gap-2 pt-2">
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              <div
+                className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "0ms" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "150ms" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "300ms" }}
+              ></div>
             </div>
           </div>
 
           {/* Progress Bar */}
           <div className="w-64 mx-auto">
             <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full animate-[shimmer_0.8s_ease-in-out_infinite]"
-                   style={{ width: '100%', animation: 'shimmer 0.8s ease-in-out infinite' }}>
-              </div>
+              <div
+                className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full animate-[shimmer_0.8s_ease-in-out_infinite]"
+                style={{
+                  width: "100%",
+                  animation: "shimmer 0.8s ease-in-out infinite",
+                }}
+              ></div>
             </div>
           </div>
         </div>
@@ -351,7 +399,8 @@ const AdminSeries: React.FC = () => {
               <option value="all">All Courses</option>
               {courses.map((course) => (
                 <option key={course.id} value={course.id}>
-                  {course.code} - {course.name} ({course.level}) - Prof. {course.professor}
+                  {course.code} - {course.name} ({course.level}) - Prof.{" "}
+                  {course.professor}
                 </option>
               ))}
             </select>
@@ -371,9 +420,19 @@ const AdminSeries: React.FC = () => {
               <option value="Exam">Exam</option>
             </select>
           </div>
+          <div className="w-full md:w-72">
+            <label className="block text-sm font-bold text-slate-700 mb-2">Search (code or professor)</label>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search course code or professor"
+              className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
         </div>
       </div>
-
+      
       {/* Series Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200">
@@ -391,247 +450,287 @@ const AdminSeries: React.FC = () => {
           </div>
         ) : (
           <>
-          {/* Desktop Table View */}
-          <div className="hidden xl:block overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Title
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Course
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Solution
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredSeries.map((item) => {
-                  const course = courses.find((c) => c.id === item.courseId);
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-bold ${getTypeColor(item.type)}`}
-                        >
-                          {item.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-bold text-slate-900">
-                          {formatTitle(item.title)}
+            {/* Desktop Table View */}
+            <div className="hidden xl:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Course
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Solution
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredSeries.map((item) => {
+                    const course = courses.find((c) => c.id === item.courseId);
+                    return (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-slate-50 transition-colors"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-bold ${getTypeColor(item.type)}`}
+                          >
+                            {item.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-bold text-slate-900">
+                            {formatTitle(item.title)}
+                          </div>
+                          {item.description && (
+                            <div className="text-xs text-slate-500 mt-1 line-clamp-1">
+                              {item.description}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-slate-900">
+                            {course?.code || "N/A"}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {course?.name}
+                          </div>
+                          {course?.professor && (
+                            <div className="text-xs text-slate-400 mt-1">
+                              {`Prof. ${course.professor}`}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {item.hasSolution ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                check_circle
+                              </span>
+                              Yes
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">
+                              <span className="material-symbols-outlined text-[14px]">
+                                cancel
+                              </span>
+                              No
+                            </span>
+                          )}
+                        </td>
+                                   <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex gap-2">
+                            {/* View File Button */}
+                            <a
+                              href={item.driveUrl || "#"}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`p-2 rounded-lg transition-colors ${
+                                item.driveUrl
+                                  ? "text-green-600 hover:bg-green-50 cursor-pointer"
+                                  : "text-slate-400 bg-slate-50 cursor-not-allowed opacity-60"
+                              }`}
+                              title={
+                                item.driveUrl
+                                  ? "View File"
+                                  : "No file attachment - PDF not found"
+                              }
+                              onClick={(e) =>
+                                !item.driveUrl && e.preventDefault()
+                              }
+                            >
+                              <span className="material-symbols-outlined text-[20px]">
+                                {item.driveUrl ? "folder_open" : "block"}
+                              </span>
+                            </a>
+
+                            {/* View Solution Button */}
+                            <a
+                              href={item.solutionUrl || "#"}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`p-2 rounded-lg transition-colors ${
+                                item.hasSolution && item.solutionUrl
+                                  ? "text-purple-600 hover:bg-purple-50 cursor-pointer"
+                                  : "text-slate-400 bg-slate-50 cursor-not-allowed opacity-60"
+                              }`}
+                              title={
+                                !item.hasSolution
+                                  ? "No solution available"
+                                  : !item.solutionUrl
+                                    ? "No solution attachment - PDF not found"
+                                    : "View Solution"
+                              }
+                              onClick={(e) =>
+                                (!item.hasSolution || !item.solutionUrl) &&
+                                e.preventDefault()
+                              }
+                            >
+                              <span className="material-symbols-outlined text-[20px]">
+                                {item.hasSolution && item.solutionUrl
+                                  ? "lightbulb"
+                                  : "block"}
+                              </span>
+                            </a>
+
+                            <button
+                              onClick={() => handleEdit(item)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit Series"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">
+                                edit
+                              </span>
+                            </button>
+                            <button
+                              onClick={() => handleDelete(item.id!)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">
+                                delete
+                              </span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="xl:hidden divide-y divide-slate-200">
+              {filteredSeries.map((item) => {
+                const course = courses.find((c) => c.id === item.courseId);
+                return (
+                  <div
+                    key={item.id}
+                    className="p-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ${getTypeColor(item.type)}`}
+                          >
+                            {item.type}
+                          </span>
+                          {item.hasSolution && (
+                            <span className="badge badge-success">
+                              <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                              Solution
+                            </span>
+                          )}
                         </div>
+                        <h3 className="text-sm font-bold text-slate-900 mb-1">
+                          {formatTitle(item.title)}
+                        </h3>
                         {item.description && (
-                          <div className="text-xs text-slate-500 mt-1 line-clamp-1">
+                          <p className="text-xs text-slate-600 line-clamp-2 mb-2">
                             {item.description}
+                          </p>
+                        )}
+                        {course && (
+                          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                            <span className="material-symbols-outlined text-[14px]">
+                              {course.icon}
+                            </span>
+                            <span className="font-semibold truncate">
+                              {course.name}
+                            </span>
                           </div>
                         )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-slate-900">
-                          {course?.code || "N/A"}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {course?.name}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {item.hasSolution ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                            <span className="material-symbols-outlined text-[14px]">
-                              check_circle
-                            </span>
-                            Yes
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">
-                            <span className="material-symbols-outlined text-[14px]">
-                              cancel
-                            </span>
-                            No
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex gap-2">
-                          {/* View File Button */}
-                          <a
-                            href={item.driveUrl || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`p-2 rounded-lg transition-colors ${
-                              item.driveUrl
-                                ? 'text-green-600 hover:bg-green-50 cursor-pointer'
-                                : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
-                            }`}
-                            title={item.driveUrl ? 'View File' : 'No file attachment - PDF not found'}
-                            onClick={(e) => !item.driveUrl && e.preventDefault()}
-                          >
-                            <span className="material-symbols-outlined text-[20px]">
-                              {item.driveUrl ? 'folder_open' : 'block'}
-                            </span>
-                          </a>
-
-                          {/* View Solution Button */}
-                          <a
-                            href={item.solutionUrl || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`p-2 rounded-lg transition-colors ${
-                              item.hasSolution && item.solutionUrl
-                                ? 'text-purple-600 hover:bg-purple-50 cursor-pointer'
-                                : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
-                            }`}
-                            title={
-                              !item.hasSolution
-                                ? 'No solution available'
-                                : !item.solutionUrl
-                                ? 'No solution attachment - PDF not found'
-                                : 'View Solution'
-                            }
-                            onClick={(e) => (!item.hasSolution || !item.solutionUrl) && e.preventDefault()}
-                          >
-                            <span className="material-symbols-outlined text-[20px]">
-                              {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                            </span>
-                          </a>
-
-                          {/* Removed md solution preview button and modal */}
-
-                          <button
-                            onClick={() => handleEdit(item)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit Series"
-                          >
-                            <span className="material-symbols-outlined text-[20px]">
-                              edit
-                            </span>
-                          </button>
-                          <button
-                            onClick={() => handleDelete(item.id!)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[20px]">
-                              delete
-                            </span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Mobile Card View */}
-          <div className="xl:hidden divide-y divide-slate-200">
-            {filteredSeries.map((item) => {
-              const course = courses.find((c) => c.id === item.courseId);
-              return (
-                <div key={item.id} className="p-4 hover:bg-slate-50 transition-colors">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ${getTypeColor(item.type)}`}>
-                          {item.type}
-                        </span>
-                        {item.hasSolution && (
-                          <span className="text-green-600 text-xs font-bold bg-green-50 px-2 py-1 rounded-full flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">check_circle</span>
-                            Solution
-                          </span>
+                        {course?.professor && (
+                          <div className="text-xs text-slate-500 mt-1">
+                            {`Prof. ${course.professor}`}
+                          </div>
                         )}
                       </div>
-                      <h3 className="text-sm font-bold text-slate-900 mb-1">{formatTitle(item.title)}</h3>
-                      {item.description && (
-                        <p className="text-xs text-slate-600 line-clamp-2 mb-2">{item.description}</p>
-                      )}
-                      {course && (
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                          <span className="material-symbols-outlined text-[14px]">{course.icon}</span>
-                          <span className="font-semibold truncate">{course.name}</span>
-                        </div>
-                      )}
                     </div>
-                  </div>
-                  <div className="flex gap-2 pt-2 border-t border-slate-100">
-                    <a
-                      href={item.driveUrl || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex-1 flex items-center justify-center gap-1 py-2 px-3 rounded-lg transition-colors text-xs font-bold ${
-                        item.driveUrl
-                          ? 'text-green-600 bg-green-50 hover:bg-green-100'
-                          : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
-                      }`}
-                      title={item.driveUrl ? 'View File' : 'No file'}
-                      onClick={(e) => !item.driveUrl && e.preventDefault()}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">
-                        {item.driveUrl ? 'folder_open' : 'block'}
-                      </span>
-                      <span>File</span>
-                    </a>
-                    {item.hasSolution && (
+                    <div className="flex gap-2 pt-2 border-t border-slate-100">
                       <a
-                        href={item.solutionUrl || '#'}
+                        href={item.driveUrl || "#"}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={`flex-1 flex items-center justify-center gap-1 py-2 px-3 rounded-lg transition-colors text-xs font-bold ${
-                          item.solutionUrl
-                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
-                            : 'text-slate-400 bg-slate-50 cursor-not-allowed opacity-60'
+                          item.driveUrl
+                            ? "text-green-600 bg-green-50 hover:bg-green-100"
+                            : "text-slate-400 bg-slate-50 cursor-not-allowed opacity-60"
                         }`}
-                        title={item.solutionUrl ? 'View Solution' : 'No solution'}
-                        onClick={(e) => !item.solutionUrl && e.preventDefault()}
+                        title={item.driveUrl ? "View File" : "No file"}
+                        onClick={(e) => !item.driveUrl && e.preventDefault()}
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {item.solutionUrl ? 'lightbulb' : 'block'}
+                          {item.driveUrl ? "folder_open" : "block"}
                         </span>
-                        <span>Solution</span>
+                        <span>File</span>
                       </a>
-                    )}
-                    <button
-                      onClick={() => handleEdit(item)}
-                      className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                      title="Edit"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">edit</span>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id!)}
-                      className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                      title="Delete"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">delete</span>
-                    </button>
+                      {item.hasSolution && (
+                        <a
+                          href={item.solutionUrl || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex-1 flex items-center justify-center gap-1 py-2 px-3 rounded-lg transition-colors text-xs font-bold ${
+                            item.solutionUrl
+                              ? "text-amber-600 bg-amber-50 hover:bg-amber-100"
+                              : "text-slate-400 bg-slate-50 cursor-not-allowed opacity-60"
+                          }`}
+                          title={
+                            item.solutionUrl ? "View Solution" : "No solution"
+                          }
+                          onClick={(e) =>
+                            !item.solutionUrl && e.preventDefault()
+                          }
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {item.solutionUrl ? "lightbulb" : "block"}
+                          </span>
+                          <span>Solution</span>
+                        </a>
+                      )}
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                        title="Edit"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">
+                          edit
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => handleDelete(item.id!)}
+                        className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">
+                          delete
+                        </span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
           </>
         )}
       </div>
 
-      {/* Modal */}
+         {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="series-modal-title">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-[scaleIn_0.2s_ease-out] flex flex-col">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center flex-shrink-0">
-              <h3 className="text-xl font-bold text-slate-900">
+               <div className="p-6 border-b border-slate-100 flex justify-between items-center flex-shrink-0">
+              <h3 id="series-modal-title" className="text-xl font-bold text-slate-900">
                 {editingSeries ? "Edit Series" : "Add New Series"}
               </h3>
               <button
@@ -646,14 +745,15 @@ const AdminSeries: React.FC = () => {
             {editingSeries && (
               <div className="sticky top-0 z-10 mx-6 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-900">
-                  <strong>Original Title:</strong> <span className="text-blue-700">{editingSeries.title}</span>
+                  <strong>Original Title:</strong>{" "}
+                  <span className="text-blue-700">{editingSeries.title}</span>
                 </p>
               </div>
             )}
 
             {/* Important Notice - Dismissable */}
             {showWarning && (
-              <div 
+              <div
                 onClick={() => setShowWarning(false)}
                 className="mx-6 mt-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg cursor-pointer hover:bg-red-100 transition-colors"
                 title="Click to dismiss"
@@ -663,12 +763,16 @@ const AdminSeries: React.FC = () => {
                     warning
                   </span>
                   <div className="flex-1">
-                    <h4 className="font-bold text-red-900 mb-1">⚠️ Important: Make file public</h4>
+                    <h4 className="font-bold text-red-900 mb-1">
+                      ⚠️ Important: Make file public
+                    </h4>
                     <p className="text-sm text-red-800">
-                      Right-click file → Share → Change to "Anyone with the link"
+                      Right-click file → Share → Change to "Anyone with the
+                      link"
                     </p>
                     <p className="text-xs text-red-700 mt-1">
-                      This prevents login prompts for students. Leave empty if you only have the solution.
+                      This prevents login prompts for students. Leave empty if
+                      you only have the solution.
                     </p>
                   </div>
                   <span className="material-symbols-outlined text-red-400 text-sm">
@@ -678,7 +782,7 @@ const AdminSeries: React.FC = () => {
               </div>
             )}
 
-            <form
+              <form
               onSubmit={handleSubmit}
               className="flex flex-col flex-1 min-h-0"
             >
@@ -690,11 +794,13 @@ const AdminSeries: React.FC = () => {
                   <select
                     value={formData.courseId}
                     onChange={(e) => {
-                      const selectedCourse = courses.find(c => c.id === e.target.value);
-                      setFormData({ 
-                        ...formData, 
+                      const selectedCourse = courses.find(
+                        (c) => c.id === e.target.value,
+                      );
+                      setFormData({
+                        ...formData,
                         courseId: e.target.value,
-                        language: selectedCourse?.language || "fr" // Auto-set from course
+                        language: selectedCourse?.language || "fr",
                       });
                     }}
                     className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
@@ -703,62 +809,32 @@ const AdminSeries: React.FC = () => {
                     <option value="">Select Course/Module</option>
                     {courses.map((course) => (
                       <option key={course.id} value={course.id}>
-                        {course.code} - {course.name} ({course.level}) - Prof. {course.professor}
-                        {course.language && ` [${course.language === 'fr' ? '🇫🇷 FR' : '🇬🇧 EN'}]`}
+                        {course.code} - {course.name} ({course.level}) - Prof.{" "}
+                        {course.professor}
+                        {course.language &&
+                          ` [${course.language === "fr" ? "🇫🇷 FR" : "🇬🇧 EN"}]`}
                       </option>
                     ))}
                   </select>
-                  {formData.courseId &&
-                    courses.find((c) => c.id === formData.courseId) && (
-                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-                        <div className="font-bold text-slate-900 mb-1">
-                          {
-                            courses.find((c) => c.id === formData.courseId)
-                              ?.code
-                          }{" "}
-                          -{" "}
-                          {
-                            courses.find((c) => c.id === formData.courseId)
-                              ?.name
-                          }{" "}
-                          (
-                          {
-                            courses.find((c) => c.id === formData.courseId)
-                              ?.level
-                          }
-                          ) -{" "}
-                          {
-                            courses.find((c) => c.id === formData.courseId)
-                              ?.academicYear
-                          }
-                        </div>
-                        <div className="text-slate-600">
-                          Professor:{" "}
-                          <span className="font-bold text-primary">
-                            {
-                              courses.find((c) => c.id === formData.courseId)
-                                ?.professor
-                            }
-                          </span>
-                          {" "}• Level:{" "}
-                          {
-                            courses.find((c) => c.id === formData.courseId)
-                              ?.level
-                          }{" "}
-                          • Year:{" "}
-                          {
-                            courses.find((c) => c.id === formData.courseId)
-                              ?.academicYear
-                          }
+                  {formData.courseId && (
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="text-xs text-blue-800">
+                        <p>
+                          <strong>Selected:</strong>{" "}
+                          {courses.find((c) => c.id === formData.courseId)?.name} ({courses.find((c) => c.id === formData.courseId)?.level}) - {courses.find((c) => c.id === formData.courseId)?.academicYear}
                           {courses.find((c) => c.id === formData.courseId)?.language && (
                             <span>
-                              {" "}• Language:{" "}
-                              {courses.find((c) => c.id === formData.courseId)?.language === 'fr' ? '🇫🇷 Français' : '🇬🇧 English'}
+                              {" "}
+                              • Language:{" "}
+                              {courses.find((c) => c.id === formData.courseId)?.language === "fr"
+                                ? "🇫🇷 Français"
+                                : "🇬🇧 English"}
                             </span>
                           )}
-                        </div>
+                        </p>
                       </div>
-                    )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Title Mode Toggle */}
@@ -828,189 +904,224 @@ const AdminSeries: React.FC = () => {
                 {/* Auto-generation fields - only show in auto mode */}
                 {formData.titleMode === "auto" && (
                   <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      Type *
-                    </label>
-                    <select
-                      value={formData.type}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          type: e.target.value as any,
-                        })
-                      }
-                      className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      required
-                    >
-                      <option value="TD">TD (Travaux Dirigés)</option>
-                      <option value="TP">TP (Travaux Pratiques)</option>
-                      <option value="Exam">Exam</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      Language *
-                    </label>
-                    <select
-                      value={formData.language}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          language: e.target.value as "fr" | "en",
-                        })
-                      }
-                      className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      required
-                    >
-                      <option value="fr">🇫🇷 Français (TD/TP/Examen)</option>
-                      <option value="en">🇬🇧 English (TW/PW/Exam)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Structured inputs for TD/TP */}
-                {(formData.type === "TD" || formData.type === "TP") && (
-                  <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">
-                          {formData.type} Number *
+                          Type *
                         </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={formData.seriesNumber}
+                        <select
+                          value={formData.type}
                           onChange={(e) =>
-                            setFormData({ ...formData, seriesNumber: e.target.value })
+                            setFormData({
+                              ...formData,
+                              type: e.target.value as any,
+                            })
                           }
                           className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                          placeholder="1"
                           required
-                          autoComplete="on"
-                          name="series-number"
-                        />
+                        >
+                          <option value="TD">TD (Travaux Dirigés)</option>
+                          <option value="TP">TP (Travaux Pratiques)</option>
+                          <option value="Exam">Exam</option>
+                        </select>
                       </div>
+
                       <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">
-                          Academic Year <span className="text-slate-400 font-normal">(optional)</span>
+                          Language *
                         </label>
-                        <input
-                          type="number"
-                          min="2010"
-                          max="2050"
-                          placeholder="2023"
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val) {
-                              handleYearChange(parseInt(val));
-                            } else {
-                              setFormData({ ...formData, academicYear: "" });
-                            }
-                          }}
+                        <select
+                          value={formData.language}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              language: e.target.value as "fr" | "en",
+                            })
+                          }
                           className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                          autoComplete="on"
-                          name="academic-year"
-                          list="year-suggestions"
-                        />
-                        {formData.academicYear && (
+                          required
+                        >
+                          <option value="fr">🇫🇷 Français (TD/TP/Examen)</option>
+                          <option value="en">🇬🇧 English (TW/PW/Exam)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Structured inputs for TD/TP */}
+                    {(formData.type === "TD" || formData.type === "TP") && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">
+                              {formData.type} Number *
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={formData.seriesNumber}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  seriesNumber: e.target.value,
+                                })
+                              }
+                              className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              placeholder="1"
+                              required
+                              autoComplete="on"
+                              name="series-number"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">
+                              Academic Year{" "}
+                              <span className="text-slate-400 font-normal">
+                                (optional)
+                              </span>
+                            </label>
+                            <input
+                              type="number"
+                              min="2010"
+                              max="2050"
+                              placeholder="2023"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val) {
+                                  handleYearChange(parseInt(val));
+                                } else {
+                                  setFormData({
+                                    ...formData,
+                                    academicYear: "",
+                                  });
+                                }
+                              }}
+                              className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              autoComplete="on"
+                              name="academic-year"
+                              list="year-suggestions"
+                            />
+                            {formData.academicYear && (
+                              <div className="text-xs text-slate-500 mt-1">
+                                Selected: {formData.academicYear}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">
+                            Chapter/Topic Title{" "}
+                            <span className="text-slate-400 font-normal">
+                              (optional)
+                            </span>
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.chapterTitle}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                chapterTitle: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            placeholder="e.g., Logique Mathematique"
+                            autoComplete="on"
+                            name="chapter-title"
+                            list="chapter-suggestions"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">
+                            Add a descriptive title for the series content
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Structured inputs for Exam */}
+                    {formData.type === "Exam" && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">
+                            Exam Type *
+                          </label>
+                          <select
+                            value={formData.examType}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                examType: e.target.value as any,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            required
+                          >
+                            <option value="Final">Final</option>
+                            <option value="TD">
+                              {formData.language === "fr" ? "TD" : "TW"}
+                            </option>
+                            <option value="TP">
+                              {formData.language === "fr" ? "TP" : "PW"}
+                            </option>
+                            <option value="Rattrapage">Rattrapage</option>
+                            <option value="Devoir">Devoir</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">
+                            Academic Year *
+                          </label>
+                          <input
+                            type="number"
+                            min="2010"
+                            max="2050"
+                            value={
+                              formData.academicYear
+                                ? parseInt(String(formData.academicYear).split('-')[0])
+                                : ''
+                            }
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (!v) {
+                                setFormData({ ...formData, academicYear: '' });
+                              } else {
+                                const n = parseInt(v);
+                                if (!Number.isNaN(n)) handleYearChange(n);
+                              }
+                            }}
+                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            placeholder={String(new Date().getFullYear())}
+                            required
+                            autoComplete="on"
+                            name="exam-year"
+                            list="year-suggestions"
+                          />
                           <div className="text-xs text-slate-500 mt-1">
                             Selected: {formData.academicYear}
                           </div>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">
-                        Chapter/Topic Title <span className="text-slate-400 font-normal">(optional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.chapterTitle}
-                        onChange={(e) =>
-                          setFormData({ ...formData, chapterTitle: e.target.value })
-                        }
-                        className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                        placeholder="e.g., Logique Mathematique"
-                        autoComplete="on"
-                        name="chapter-title"
-                        list="chapter-suggestions"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">
-                        Add a descriptive title for the series content
-                      </p>
-                    </div>
-                  </div>
-                )}
+                    )}
 
-                {/* Structured inputs for Exam */}
-                {formData.type === "Exam" && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">
-                        Exam Type *
-                      </label>
-                      <select
-                        value={formData.examType}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            examType: e.target.value as any,
-                          })
-                        }
-                        className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                        required
-                      >
-                        <option value="Final">Final</option>
-                        <option value="TD">{formData.language === "fr" ? "TD" : "TW"}</option>
-                        <option value="TP">{formData.language === "fr" ? "TP" : "PW"}</option>
-                        <option value="Rattrapage">Rattrapage</option>
-                        <option value="Devoir">Devoir</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">
-                        Academic Year *
-                      </label>
-                      <input
-                        type="number"
-                        min="2010"
-                        max="2050"
-                        defaultValue={2023}
-                        onChange={(e) => handleYearChange(parseInt(e.target.value))}
-                        className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                        placeholder="2023"
-                        required
-                        autoComplete="on"
-                        name="exam-year"
-                        list="year-suggestions"
-                      />
-                      <div className="text-xs text-slate-500 mt-1">
-                        Selected: {formData.academicYear}
+                    {/* Preview generated title - only in auto mode */}
+                    {formData.titleMode === "auto" && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="material-symbols-outlined text-green-600">
+                            auto_awesome
+                          </span>
+                          <span className="text-sm font-bold text-green-900">
+                            Auto-Generated Title:
+                          </span>
+                        </div>
+                        <div className="text-lg font-mono font-bold text-green-700">
+                          {generateTitle() || "(Fill fields above)"}
+                        </div>
+                        <div className="text-xs text-green-600 mt-1">
+                          Will be saved as: {formatTitle(generateTitle())}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Preview generated title - only in auto mode */}
-                {formData.titleMode === "auto" && (
-                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="material-symbols-outlined text-green-600">auto_awesome</span>
-                      <span className="text-sm font-bold text-green-900">Auto-Generated Title:</span>
-                    </div>
-                    <div className="text-lg font-mono font-bold text-green-700">
-                      {generateTitle() || "(Fill fields above)"}
-                    </div>
-                    <div className="text-xs text-green-600 mt-1">
-                      Will be saved as: {formatTitle(generateTitle())}
-                    </div>
-                  </div>
-                )}
-                </>
+                    )}
+                  </>
                 )}
 
                 {/* Drive URLs section */}
@@ -1039,10 +1150,19 @@ const AdminSeries: React.FC = () => {
                         info
                       </span>
                       <div className="text-xs text-blue-800">
-                        <p className="font-semibold mb-1">Important: Make file public</p>
-                        <p>Right-click file → Share → Change to "Anyone with the link"</p>
-                        <p className="mt-1 text-blue-600">This prevents login prompts for students</p>
-                        <p className="mt-1 text-slate-600">Leave empty if you only have the solution</p>
+                        <p className="font-semibold mb-1">
+                          Important: Make file public
+                        </p>
+                        <p>
+                          Right-click file → Share → Change to "Anyone with the
+                          link"
+                        </p>
+                        <p className="mt-1 text-blue-600">
+                          This prevents login prompts for students
+                        </p>
+                        <p className="mt-1 text-slate-600">
+                          Leave empty if you only have the solution
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1115,7 +1235,7 @@ const AdminSeries: React.FC = () => {
                 <option value="2025" />
                 <option value="2026" />
               </datalist>
-              
+
               <datalist id="chapter-suggestions">
                 <option value="Logique Mathematique" />
                 <option value="Algebre" />
@@ -1154,7 +1274,7 @@ const AdminSeries: React.FC = () => {
         onClick={() => {
           // Auto-select filtered course if one is selected
           if (selectedCourseId !== "all") {
-            setFormData(prev => ({ ...prev, courseId: selectedCourseId }));
+            setFormData((prev) => ({ ...prev, courseId: selectedCourseId }));
           }
           setIsModalOpen(true);
         }}
@@ -1166,50 +1286,21 @@ const AdminSeries: React.FC = () => {
       </button>
 
       {/* Notification Dialog */}
-      {notification && (
-        <div className="fixed top-4 right-4 z-[60] animate-[slideInRight_0.3s_ease-out]">
-          <div
-            className={`flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl ${
-              notification.type === "success"
-                ? "bg-green-50 border border-green-200"
-                : "bg-red-50 border border-red-200"
-            }`}
-          >
-            <span
-              className={`material-symbols-outlined ${
-                notification.type === "success"
-                  ? "text-green-600"
-                  : "text-red-600"
-              }`}
-            >
-              {notification.type === "success" ? "check_circle" : "error"}
-            </span>
-            <p
-              className={`font-semibold ${
-                notification.type === "success"
-                  ? "text-green-800"
-                  : "text-red-800"
-              }`}
-            >
-              {notification.message}
-            </p>
-            <button
-              onClick={() => setNotification(null)}
-              className={`ml-2 ${
-                notification.type === "success"
-                  ? "text-green-600 hover:text-green-800"
-                  : "text-red-600 hover:text-red-800"
-              }`}
-            >
-              <span className="material-symbols-outlined text-[20px]">
-                close
-              </span>
-            </button>
+      <div className="toast-container">
+        {notification && (
+          <div>
+            <div role="status" aria-live="polite">
+              <div className={notification.type === 'success' ? 'toast toast-success' : 'toast toast-error'}>
+                <div className="flex items-center justify-between">
+                  <div>{notification.message}</div>
+                  <button aria-label="Dismiss" onClick={() => setNotification(null)}>✕</button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
-
 export default AdminSeries;

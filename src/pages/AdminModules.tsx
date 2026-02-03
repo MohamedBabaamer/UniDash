@@ -334,11 +334,11 @@ const AdminModules: React.FC = () => {
                             <td className="px-3 py-4 text-right">
                                 <div className="flex items-center justify-end gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                     <Link 
-                                        to={`/course/${module.code.toLowerCase()}`}
-                                        className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                                        title="View"
+                                      to={`/admin/modules?course=${module.id}`}
+                                      className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                      title="View"
                                     >
-                                        <span className="material-symbols-outlined text-lg">visibility</span>
+                                      <span className="material-symbols-outlined text-lg">visibility</span>
                                     </Link>
                                     <button 
                                         onClick={() => handleEdit(module)}

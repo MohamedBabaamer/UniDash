@@ -48,6 +48,20 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn();
     }
+
+    // 🔢 Counters Collection (sequence numbers, course codes)
+    // NOTE: create/delete remains admin-only. Updates are allowed for any signed-in user
+    // so the UI can perform transactional increments when creating resources/series.
+    // This is permissive — if you need stricter guarantees, consider a Cloud Function
+    // to perform counter increments or add field-level increment checks here.
+    match /counters/{counterId} {
+      // Reading counters is allowed for signed-in users (used to display sequence info)
+      allow read: if isSignedIn();
+      // Creation and deletion of counter documents requires admin privileges
+      allow create, delete: if isAdmin();
+      // Allow signed-in users to update counters (increments during transactions)
+      allow update: if isSignedIn();
+    }
     
     // 📊 Exams Collection (top-level)
     match /exams/{examId} {

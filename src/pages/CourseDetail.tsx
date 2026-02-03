@@ -1,24 +1,32 @@
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
+import { useAuth } from '../contexts/AuthContext';
 import {
   getCourseById,
   getResourcesByCourseId,
   getSeriesByCourseId,
 } from "../services/database.service";
-import { Course, Resource, Series } from "../types/index";
+import { Course, Resource, Series } from "../types";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../config/firebase.config";
 import SecurePDFViewer from "../components/SecurePDFViewer";
 
 const CourseDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams() as { id?: string };
   const [course, setCourse] = useState<Course | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
   const [loading, setLoading] = useState(true);
   const [globalExamDate, setGlobalExamDate] = useState<string | null>(null);
   const [examSettingsEnabled, setExamSettingsEnabled] = useState(true);
-  const [viewingPDF, setViewingPDF] = useState<{ url: string; title: string } | null>(null);
+  const [viewingPDF, setViewingPDF] = useState<{
+    url: string;
+    title: string;
+  } | null>(null);
+  const [chapterFilter, setChapterFilter] = useState<string>("");
+  const [chapterSort, setChapterSort] = useState<'number'|'title'|'date'>('number');
+  const [seriesFilter, setSeriesFilter] = useState<string>("");
+  const [seriesSort, setSeriesSort] = useState<'sequence'|'title'|'date'>('sequence');
   const [courseProgress, setCourseProgress] = useState({
     viewedChapters: new Set<string>(),
     viewedTD: new Set<string>(),
@@ -26,13 +34,15 @@ const CourseDetail: React.FC = () => {
     viewedExams: new Set<string>(),
   });
 
+  const { isAdmin } = useAuth();
+
   useEffect(() => {
     if (id) {
       fetchCourseData();
       fetchGlobalExamSettings();
-      
+
       // Load progress for this course
-      const savedProgress = localStorage.getItem('courseProgress');
+      const savedProgress = localStorage.getItem("courseProgress");
       if (savedProgress) {
         const allProgress = JSON.parse(savedProgress);
         if (allProgress[id]) {
@@ -89,12 +99,12 @@ const CourseDetail: React.FC = () => {
       setCourse(courseData);
       setResources(resourcesData);
       setSeries(seriesData);
-      
+
       // Update total counts in localStorage
       if (id) {
-        const savedProgress = localStorage.getItem('courseProgress');
+        const savedProgress = localStorage.getItem("courseProgress");
         const allProgress = savedProgress ? JSON.parse(savedProgress) : {};
-        
+
         if (!allProgress[id]) {
           allProgress[id] = {
             viewedChapters: [],
@@ -103,13 +113,19 @@ const CourseDetail: React.FC = () => {
             viewedExams: [],
           };
         }
-        
+
         allProgress[id].totalChapters = resourcesData.length;
-        allProgress[id].totalTD = seriesData.filter(s => s.type === 'TD').length;
-        allProgress[id].totalTP = seriesData.filter(s => s.type === 'TP').length;
-        allProgress[id].totalExams = seriesData.filter(s => s.type === 'Exam').length;
-        
-        localStorage.setItem('courseProgress', JSON.stringify(allProgress));
+        allProgress[id].totalTD = seriesData.filter(
+          (s) => s.type === "TD",
+        ).length;
+        allProgress[id].totalTP = seriesData.filter(
+          (s) => s.type === "TP",
+        ).length;
+        allProgress[id].totalExams = seriesData.filter(
+          (s) => s.type === "Exam",
+        ).length;
+
+        localStorage.setItem("courseProgress", JSON.stringify(allProgress));
       }
     } catch (error) {
       console.error("❌ Error fetching course data:", error);
@@ -131,17 +147,44 @@ const CourseDetail: React.FC = () => {
 
   // Format title by replacing _ and - with spaces
   const formatTitle = (title: string): string => {
-    return title.replace(/[_-]/g, ' ');
+    return title.replace(/[_-]/g, " ");
   };
 
-  const openDriveUrl = (url: string, title: string = "Document", itemId?: string, itemType?: 'chapter' | 'TD' | 'TP' | 'exam') => {
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      // lightweight feedback — could be improved with toast
+      console.log('Copied to clipboard');
+    } catch (e) {
+      console.error('Copy failed', e);
+    }
+  };
+
+  const markAllChaptersRead = () => {
+    if (!id) return;
+    const savedProgress = localStorage.getItem('courseProgress');
+    const allProgress = savedProgress ? JSON.parse(savedProgress) : {};
+    if (!allProgress[id]) {
+      allProgress[id] = { viewedChapters: [], viewedTD: [], viewedTP: [], viewedExams: [] };
+    }
+    allProgress[id].viewedChapters = chapters.map(c => c.id);
+    localStorage.setItem('courseProgress', JSON.stringify(allProgress));
+    setCourseProgress(prev => ({ ...prev, viewedChapters: new Set(chapters.map(c => c.id)) }));
+  };
+
+  const openDriveUrl = (
+    url: string,
+    title: string = "Document",
+    itemId?: string,
+    itemType?: "chapter" | "TD" | "TP" | "exam",
+  ) => {
     setViewingPDF({ url, title });
-    
+
     // Mark as viewed
     if (id && itemId && itemType) {
-      const savedProgress = localStorage.getItem('courseProgress');
+      const savedProgress = localStorage.getItem("courseProgress");
       const allProgress = savedProgress ? JSON.parse(savedProgress) : {};
-      
+
       if (!allProgress[id]) {
         allProgress[id] = {
           viewedChapters: [],
@@ -149,53 +192,53 @@ const CourseDetail: React.FC = () => {
           viewedTP: [],
           viewedExams: [],
           totalChapters: resources.length,
-          totalTD: series.filter(s => s.type === 'TD').length,
-          totalTP: series.filter(s => s.type === 'TP').length,
-          totalExams: series.filter(s => s.type === 'Exam').length,
+          totalTD: series.filter((s) => s.type === "TD").length,
+          totalTP: series.filter((s) => s.type === "TP").length,
+          totalExams: series.filter((s) => s.type === "Exam").length,
         };
       }
-      
+
       // Add to appropriate viewed list
-      switch(itemType) {
-        case 'chapter':
+      switch (itemType) {
+        case "chapter":
           if (!allProgress[id].viewedChapters.includes(itemId)) {
             allProgress[id].viewedChapters.push(itemId);
           }
-          setCourseProgress(prev => ({
+          setCourseProgress((prev) => ({
             ...prev,
-            viewedChapters: new Set([...prev.viewedChapters, itemId])
+            viewedChapters: new Set([...prev.viewedChapters, itemId]),
           }));
           break;
-        case 'TD':
+        case "TD":
           if (!allProgress[id].viewedTD.includes(itemId)) {
             allProgress[id].viewedTD.push(itemId);
           }
-          setCourseProgress(prev => ({
+          setCourseProgress((prev) => ({
             ...prev,
-            viewedTD: new Set([...prev.viewedTD, itemId])
+            viewedTD: new Set([...prev.viewedTD, itemId]),
           }));
           break;
-        case 'TP':
+        case "TP":
           if (!allProgress[id].viewedTP.includes(itemId)) {
             allProgress[id].viewedTP.push(itemId);
           }
-          setCourseProgress(prev => ({
+          setCourseProgress((prev) => ({
             ...prev,
-            viewedTP: new Set([...prev.viewedTP, itemId])
+            viewedTP: new Set([...prev.viewedTP, itemId]),
           }));
           break;
-        case 'exam':
+        case "exam":
           if (!allProgress[id].viewedExams.includes(itemId)) {
             allProgress[id].viewedExams.push(itemId);
           }
-          setCourseProgress(prev => ({
+          setCourseProgress((prev) => ({
             ...prev,
-            viewedExams: new Set([...prev.viewedExams, itemId])
+            viewedExams: new Set([...prev.viewedExams, itemId]),
           }));
           break;
       }
-      
-      localStorage.setItem('courseProgress', JSON.stringify(allProgress));
+
+      localStorage.setItem("courseProgress", JSON.stringify(allProgress));
     }
   };
 
@@ -214,56 +257,76 @@ const CourseDetail: React.FC = () => {
     .sort((a, b) => a.title.localeCompare(b.title));
 
   // Filter resources into chapters and full course books
-  const chapters = resources.filter((r) => !(r as any).resourceType || (r as any).resourceType === 'chapter');
-  const books = resources.filter((r) => (r as any).resourceType === 'book');
+  const chapters = resources.filter(
+    (r) => !(r as any).resourceType || (r as any).resourceType === "chapter",
+  );
+  const books = resources.filter((r) => (r as any).resourceType === "book");
 
   // Helper to check if exam should be excluded (TW or Rattrapage)
   const shouldExcludeExam = (title: string): boolean => {
     const titleLower = title.toLowerCase();
-    
+
     // Check for TW variations (Tutorial Work - English)
     // Matches: "TW", "Exam TW", "TW Exam", etc.
-    const hasTW = titleLower.includes(' tw ') || 
-                  titleLower.includes(' tw') || 
-                  titleLower.includes('tw ') ||
-                  titleLower === 'tw' ||
-                  titleLower.startsWith('tw ') ||
-                  titleLower.endsWith(' tw') ||
-                  /\btw\b/i.test(title); // Word boundary check (case-insensitive)
-    
+    const hasTW =
+      titleLower.includes(" tw ") ||
+      titleLower.includes(" tw") ||
+      titleLower.includes("tw ") ||
+      titleLower === "tw" ||
+      titleLower.startsWith("tw ") ||
+      titleLower.endsWith(" tw") ||
+      /\btw\b/i.test(title); // Word boundary check (case-insensitive)
+
     // Check for Rattrapage (French: "Rattrapage", "Rattrap") and English equivalents
     // Matches: "Rattrapage", "Exam Rattrapage", "Makeup", "Make-up", "Resit"
-    const hasRattrapage = titleLower.includes('rattrapage') || 
-                          titleLower.includes('rattrap') ||
-                          titleLower.includes('makeup') ||
-                          titleLower.includes('make-up') ||
-                          titleLower.includes('make up') ||
-                          titleLower.includes('resit') ||
-                          titleLower.includes('re-sit');
-    
+    const hasRattrapage =
+      titleLower.includes("rattrapage") ||
+      titleLower.includes("rattrap") ||
+      titleLower.includes("makeup") ||
+      titleLower.includes("make-up") ||
+      titleLower.includes("make up") ||
+      titleLower.includes("resit") ||
+      titleLower.includes("re-sit");
+
     return hasTW || hasRattrapage;
   };
 
   // Group exams by type (Final, TD, TP, Devoir, Rattrapage) - Support French & English
   const examFinalSeries = examSeries.filter((s) => {
     const titleLower = s.title.toLowerCase();
-    return (titleLower.includes('final') || titleLower.includes('finale'));
+    return titleLower.includes("final") || titleLower.includes("finale");
   });
   const examTDSeries = examSeries.filter((s) => {
     const titleLower = s.title.toLowerCase();
-    return (titleLower.includes('td') || titleLower.includes('tw')) && !(titleLower.includes('final') || titleLower.includes('finale'));
+    return (
+      (titleLower.includes("td") || titleLower.includes("tw")) &&
+      !(titleLower.includes("final") || titleLower.includes("finale"))
+    );
   });
   const examTPSeries = examSeries.filter((s) => {
     const titleLower = s.title.toLowerCase();
-    return (titleLower.includes('tp') || titleLower.includes('pw')) && !(titleLower.includes('final') || titleLower.includes('finale'));
+    return (
+      (titleLower.includes("tp") || titleLower.includes("pw")) &&
+      !(titleLower.includes("final") || titleLower.includes("finale"))
+    );
   });
   const examDevoirSeries = examSeries.filter((s) => {
     const titleLower = s.title.toLowerCase();
-    return titleLower.includes('devoir') && !(titleLower.includes('final') || titleLower.includes('finale'));
+    return (
+      titleLower.includes("devoir") &&
+      !(titleLower.includes("final") || titleLower.includes("finale"))
+    );
   });
   const examRattrapageSeries = examSeries.filter((s) => {
     const titleLower = s.title.toLowerCase();
-    return (titleLower.includes('rattrapage') || titleLower.includes('rattrap') || titleLower.includes('makeup') || titleLower.includes('make-up') || titleLower.includes('resit')) && !(titleLower.includes('final') || titleLower.includes('finale'));
+    return (
+      (titleLower.includes("rattrapage") ||
+        titleLower.includes("rattrap") ||
+        titleLower.includes("makeup") ||
+        titleLower.includes("make-up") ||
+        titleLower.includes("resit")) &&
+      !(titleLower.includes("final") || titleLower.includes("finale"))
+    );
   });
 
   // Check if solutions should be unlocked using global exam date
@@ -287,14 +350,14 @@ const CourseDetail: React.FC = () => {
     const totalTD = tdSeries.length;
     const totalTP = tpSeries.length;
     const totalExams = examSeries.length;
-    
+
     const totalItems = totalChapters + totalTD + totalTP + totalExams;
     if (totalItems === 0) return 0;
 
-    const viewedItems = 
-      courseProgress.viewedChapters.size + 
-      courseProgress.viewedTD.size + 
-      courseProgress.viewedTP.size + 
+    const viewedItems =
+      courseProgress.viewedChapters.size +
+      courseProgress.viewedTD.size +
+      courseProgress.viewedTP.size +
       courseProgress.viewedExams.size;
 
     return Math.round((viewedItems / totalItems) * 100);
@@ -316,9 +379,18 @@ const CourseDetail: React.FC = () => {
           <div className="flex justify-center items-center gap-3">
             <div className="relative w-20 h-20">
               <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
-              <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" style={{ animationDuration: '0.6s' }}></div>
+              <div
+                className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"
+                style={{ animationDuration: "0.6s" }}
+              ></div>
               <div className="absolute inset-2 border-4 border-slate-100 rounded-full"></div>
-              <div className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.5s' }}></div>
+              <div
+                className="absolute inset-2 border-4 border-primary/50 border-b-transparent rounded-full animate-spin"
+                style={{
+                  animationDirection: "reverse",
+                  animationDuration: "0.5s",
+                }}
+              ></div>
             </div>
           </div>
 
@@ -329,17 +401,32 @@ const CourseDetail: React.FC = () => {
             <p className="text-slate-500 font-medium">
               Preparing your content...
             </p>
-            
+
             <div className="flex justify-center gap-2 pt-2">
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              <div
+                className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "0ms" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "150ms" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "300ms" }}
+              ></div>
             </div>
           </div>
 
           <div className="w-64 mx-auto">
             <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full" style={{ width: '100%', animation: 'shimmer 0.8s ease-in-out infinite' }}></div>
+              <div
+                className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full"
+                style={{
+                  width: "100%",
+                  animation: "shimmer 0.8s ease-in-out infinite",
+                }}
+              ></div>
             </div>
           </div>
         </div>
@@ -407,7 +494,7 @@ const CourseDetail: React.FC = () => {
         </Link>
         <span className="material-symbols-outlined text-sm">chevron_right</span>
         <Link
-          to={`/dashboard?level=${course.level}`}
+          to={isAdmin ? `/admin/modules?level=${course.level}` : `/dashboard?level=${course.level}`}
           className="hover:text-primary transition-colors"
         >
           {getLevelName(course.level)}
@@ -523,6 +610,14 @@ const CourseDetail: React.FC = () => {
                 {course.status}
               </span>
             </div>
+            {/* Admin Actions */}
+            {isAdmin && (
+              <div className="mt-4 flex items-center gap-2">
+                <Link to={`/admin/modules?course=${id}`} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm font-semibold">Manage Module</Link>
+                <Link to={`/admin/chapters?course=${id}`} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm font-semibold">Manage Chapters</Link>
+                <Link to={`/admin/series?course=${id}`} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm font-semibold">Manage Series</Link>
+              </div>
+            )}
           </div>
         </div>
 
@@ -562,7 +657,7 @@ const CourseDetail: React.FC = () => {
               <div className="flex gap-2">
                 {books.length > 0 && (
                   <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">
-                    {books.length} Book{books.length !== 1 ? 's' : ''}
+                    {books.length} Book{books.length !== 1 ? "s" : ""}
                   </span>
                 )}
                 {chapters.length > 0 && (
@@ -573,7 +668,28 @@ const CourseDetail: React.FC = () => {
               </div>
             </div>
 
-            {(books.length > 0 || chapters.length > 0) ? (
+            {/* Search & actions */}
+            <div className="flex items-center gap-3 mb-4">
+              <input
+                type="search"
+                placeholder="Filter chapters by title or number"
+                value={chapterFilter}
+                onChange={(e) => setChapterFilter(e.target.value)}
+                className="w-full md:w-72 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20"
+              />
+              <select
+                value={chapterSort}
+                onChange={(e) => setChapterSort(e.target.value as any)}
+                className="px-3 py-2 border border-slate-200 rounded-lg"
+              >
+                <option value="number">Sort: Number</option>
+                <option value="title">Sort: Title</option>
+                <option value="date">Sort: Date</option>
+              </select>
+              <button onClick={markAllChaptersRead} className="px-3 py-2 bg-primary text-white rounded-lg">Mark all read</button>
+            </div>
+
+            {books.length > 0 || chapters.length > 0 ? (
               <div className="space-y-4 max-h-96 overflow-y-auto">
                 {/* Full Course Books Section */}
                 {books.length > 0 && (
@@ -584,7 +700,14 @@ const CourseDetail: React.FC = () => {
                     {books.map((resource) => (
                       <div
                         key={resource.id}
-                        onClick={() => openDriveUrl(resource.driveUrl, resource.title, resource.id, 'chapter')}
+                        onClick={() =>
+                          openDriveUrl(
+                            resource.driveUrl,
+                            resource.title,
+                            resource.id,
+                            "chapter",
+                          )
+                        }
                         className="group p-4 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 hover:border-purple-300 transition-all cursor-pointer"
                       >
                         <div className="flex items-start gap-3">
@@ -592,7 +715,9 @@ const CourseDetail: React.FC = () => {
                             📚
                             {courseProgress.viewedChapters.has(resource.id) && (
                               <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white text-[12px]">check</span>
+                                <span className="material-symbols-outlined text-white text-[12px]">
+                                  check
+                                </span>
                               </span>
                             )}
                           </div>
@@ -623,37 +748,75 @@ const CourseDetail: React.FC = () => {
                         📄 Individual Chapters
                       </h4>
                     )}
-                    {chapters.map((resource) => (
-                  <div
-                    key={resource.id}
-                    onClick={() => openDriveUrl(resource.driveUrl, `Chapter ${resource.chapterNumber}: ${resource.title}`, resource.id, 'chapter')}
-                    className="group p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-primary/30 transition-all cursor-pointer"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold flex-shrink-0 relative">
-                        {resource.chapterNumber}
-                        {courseProgress.viewedChapters.has(resource.id) && (
-                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="material-symbols-outlined text-white text-[12px]">check</span>
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-slate-900 mb-1">
-                          {resource.title}
-                        </h4>
-                        {resource.description && (
-                          <p className="text-xs text-slate-600 line-clamp-2">
-                            {resource.description}
-                          </p>
-                        )}
-                      </div>
-                      <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">
-                        open_in_new
-                      </span>
-                    </div>
-                  </div>
-                    ))}
+                    {chapters
+                      .filter((r) => {
+                        if (!chapterFilter) return true;
+                        const q = chapterFilter.trim().toLowerCase();
+                        return (
+                          (r.title || '').toLowerCase().includes(q) ||
+                          String(r.chapterNumber || '').includes(q)
+                        );
+                      })
+                      .sort((a, b) => {
+                        if (chapterSort === 'title') return (a.title || '').localeCompare(b.title || '');
+                        if (chapterSort === 'date') return new Date(a.date).getTime() - new Date(b.date).getTime();
+                        const an = a.chapterNumber ?? 0;
+                        const bn = b.chapterNumber ?? 0;
+                        return an - bn;
+                      })
+                      .map((resource, index) => (
+                        <div
+                          key={resource.id}
+                          onClick={() =>
+                            openDriveUrl(
+                              resource.driveUrl,
+                              `Chapter ${resource.chapterNumber ?? index + 1}: ${resource.title}`,
+                              resource.id,
+                              'chapter',
+                            )
+                          }
+                          className="group p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-primary/30 transition-all cursor-pointer"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold flex-shrink-0 relative">
+                              {resource.chapterNumber ?? index + 1}
+                              {courseProgress.viewedChapters.has(resource.id) && (
+                                <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[12px]">check</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-bold text-slate-900 mb-1">{resource.title}</h4>
+                              {resource.description && (
+                                <p className="text-xs text-slate-600 line-clamp-2">{resource.description}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(resource.driveUrl, '_blank', 'noopener');
+                                }}
+                                className="text-slate-400 hover:text-primary"
+                                title="Open Drive"
+                              >
+                                <span className="material-symbols-outlined">open_in_new</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  resource.driveUrl && copyToClipboard(resource.driveUrl);
+                                }}
+                                className="text-slate-400 hover:text-primary"
+                                title="Copy Drive URL"
+                              >
+                                <span className="material-symbols-outlined">content_copy</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 )}
               </div>
@@ -697,25 +860,59 @@ const CourseDetail: React.FC = () => {
           </div>
 
           <div className="space-y-4 max-h-[500px] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="search"
+                  placeholder="Filter TD/TP by title"
+                  value={seriesFilter}
+                  onChange={(e) => setSeriesFilter(e.target.value)}
+                  className="w-56 px-3 py-2 border border-slate-200 rounded-lg"
+                />
+                <select
+                  value={seriesSort}
+                  onChange={(e) => setSeriesSort(e.target.value as any)}
+                  className="px-3 py-2 border border-slate-200 rounded-lg"
+                >
+                  <option value="sequence">Sort: Sequence</option>
+                  <option value="title">Sort: Title</option>
+                  <option value="date">Sort: Date</option>
+                </select>
+              </div>
+            </div>
+
             {/* TD Section */}
             {showTD && tdSeries.length > 0 && (
               <div className="space-y-2">
                 <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2">
                   Travaux Dirigés
                 </h4>
-                {tdSeries.map((item) => (
+                {tdSeries
+                  .filter(s => {
+                    if (!seriesFilter) return true;
+                    const q = seriesFilter.trim().toLowerCase();
+                    return (s.title || '').toLowerCase().includes(q) || String(s.sequenceNumber ?? '').includes(q);
+                  })
+                  .sort((a,b) => {
+                    if (seriesSort === 'title') return (a.title||'').localeCompare(b.title||'');
+                    if (seriesSort === 'date') return new Date(a.date).getTime() - new Date(b.date).getTime();
+                    return (a.sequenceNumber ?? 0) - (b.sequenceNumber ?? 0);
+                  })
+                  .map((item, index) => (
                   <div
                     key={item.id}
                     className="p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-all"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-bold text-slate-900">
-                        {formatTitle(item.title)}
+                        {`${item.sequenceNumber ?? index + 1}. ${formatTitle(item.title)}`}
                       </h4>
                       <div className="flex items-center gap-2">
                         {!item.driveUrl && (
                           <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                            <span className="material-symbols-outlined text-[14px]">error</span>
+                            <span className="material-symbols-outlined text-[14px]">
+                              error
+                            </span>
                             No file
                           </span>
                         )}
@@ -732,59 +929,89 @@ const CourseDetail: React.FC = () => {
                     <p className="text-xs text-slate-500 mb-3">
                       {item.date && !isNaN(new Date(item.date).getTime())
                         ? new Date(item.date).toLocaleDateString()
-                        : 'Date not available'}
+                        : "Date not available"}
                     </p>
                     <div className="flex gap-2">
                       {/* TD File Button - Always visible */}
                       <button
-                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'TD')}
+                        onClick={() =>
+                          item.driveUrl &&
+                          openDriveUrl(item.driveUrl, item.title, item.id, "TD")
+                        }
                         disabled={!item.driveUrl}
                         className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
                           item.driveUrl
-                            ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                            ? "bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                            : "bg-slate-400 cursor-not-allowed opacity-70"
                         }`}
-                        title={item.driveUrl ? 'Download TD file' : 'PDF not found - No attachment available'}
+                        title={
+                          item.driveUrl
+                            ? "Download TD file"
+                            : "PDF not found - No attachment available"
+                        }
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {item.driveUrl ? 'download' : 'block'}
+                          {item.driveUrl ? "download" : "block"}
                         </span>
                         TD File
-                        {item.driveUrl && courseProgress.viewedTD.has(item.id) && (
-                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                          </span>
-                        )}
+                        {item.driveUrl &&
+                          courseProgress.viewedTD.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">
+                                check
+                              </span>
+                            </span>
+                          )}
                       </button>
 
                       {/* Solution Button - Always visible */}
                       <button
                         onClick={() => {
-                          if (item.hasSolution && item.solutionUrl && areSolutionsUnlocked) {
-                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'TD');
+                          if (
+                            item.hasSolution &&
+                            item.solutionUrl &&
+                            areSolutionsUnlocked
+                          ) {
+                            openDriveUrl(
+                              item.solutionUrl,
+                              `${item.title} - Solution`,
+                              item.id,
+                              "TD",
+                            );
                           }
                         }}
-                        disabled={!item.hasSolution || !item.solutionUrl || !areSolutionsUnlocked}
+                        disabled={
+                          !item.hasSolution ||
+                          !item.solutionUrl ||
+                          !areSolutionsUnlocked
+                        }
                         className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                          item.hasSolution && item.solutionUrl && areSolutionsUnlocked
-                            ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          item.hasSolution &&
+                          item.solutionUrl &&
+                          areSolutionsUnlocked
+                            ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                            : "bg-slate-400 cursor-not-allowed opacity-70"
                         }`}
                         title={
                           !item.hasSolution
-                            ? 'No solution available'
+                            ? "No solution available"
                             : !item.solutionUrl
-                            ? 'Solution PDF not found - No attachment available'
-                            : !areSolutionsUnlocked
-                            ? `Solutions unlock on ${getUnlockDateMessage()}`
-                            : 'Download solution'
+                              ? "Solution PDF not found - No attachment available"
+                              : !areSolutionsUnlocked
+                                ? `Solutions unlock on ${getUnlockDateMessage()}`
+                                : "Download solution"
                         }
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {item.hasSolution && item.solutionUrl && areSolutionsUnlocked ? 'lightbulb' : 
-                           !areSolutionsUnlocked ? 'lock' : 'block'}
+                          {item.hasSolution &&
+                          item.solutionUrl &&
+                          areSolutionsUnlocked
+                            ? "lightbulb"
+                            : !areSolutionsUnlocked
+                              ? "lock"
+                              : "block"}
                         </span>
-                        {areSolutionsUnlocked ? 'Solution' : 'Locked'}
+                        {areSolutionsUnlocked ? "Solution" : "Locked"}
                       </button>
                     </div>
                   </div>
@@ -798,19 +1025,21 @@ const CourseDetail: React.FC = () => {
                 <h4 className="text-sm font-bold text-green-600 uppercase tracking-wider px-2">
                   Travaux Pratiques
                 </h4>
-                {tpSeries.map((item) => (
+                {tpSeries.map((item, index) => (
                   <div
                     key={item.id}
                     className="p-4 bg-slate-50 hover:bg-green-50 rounded-lg border border-slate-200 hover:border-green-300 transition-all"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-bold text-slate-900">
-                        {formatTitle(item.title)}
+                        {`${item.sequenceNumber ?? index + 1}. ${formatTitle(item.title)}`}
                       </h4>
                       <div className="flex items-center gap-2">
                         {!item.driveUrl && (
                           <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                            <span className="material-symbols-outlined text-[14px]">error</span>
+                            <span className="material-symbols-outlined text-[14px]">
+                              error
+                            </span>
                             No file
                           </span>
                         )}
@@ -827,59 +1056,89 @@ const CourseDetail: React.FC = () => {
                     <p className="text-xs text-slate-500 mb-3">
                       {item.date && !isNaN(new Date(item.date).getTime())
                         ? new Date(item.date).toLocaleDateString()
-                        : 'Date not available'}
+                        : "Date not available"}
                     </p>
                     <div className="flex gap-2">
                       {/* TP File Button - Always visible */}
                       <button
-                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'TP')}
+                        onClick={() =>
+                          item.driveUrl &&
+                          openDriveUrl(item.driveUrl, item.title, item.id, "TP")
+                        }
                         disabled={!item.driveUrl}
                         className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
                           item.driveUrl
-                            ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
-                        }`}
-                        title={item.driveUrl ? 'Download TP file' : 'PDF not found - No attachment available'}
-                      >
-                        <span className="material-symbols-outlined text-[16px]">
-                          {item.driveUrl ? 'download' : 'block'}
-                        </span>
-                        TP File
-                        {item.driveUrl && courseProgress.viewedTP.has(item.id) && (
-                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                          </span>
-                        )}
-                      </button>
-
-                      {/* Solution Button - Always visible */}
-                      <button
-                        onClick={() => {
-                          if (item.hasSolution && item.solutionUrl && areSolutionsUnlocked) {
-                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'TP');
-                          }
-                        }}
-                        disabled={!item.hasSolution || !item.solutionUrl || !areSolutionsUnlocked}
-                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                          item.hasSolution && item.solutionUrl && areSolutionsUnlocked
-                            ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                            ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                            : "bg-slate-400 cursor-not-allowed opacity-70"
                         }`}
                         title={
-                          !item.hasSolution
-                            ? 'No solution available'
-                            : !item.solutionUrl
-                            ? 'Solution PDF not found - No attachment available'
-                            : !areSolutionsUnlocked
-                            ? `Solutions unlock on ${getUnlockDateMessage()}`
-                            : 'Download solution'
+                          item.driveUrl
+                            ? "Download TP file"
+                            : "PDF not found - No attachment available"
                         }
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {item.hasSolution && item.solutionUrl && areSolutionsUnlocked ? 'lightbulb' : 
-                           !areSolutionsUnlocked ? 'lock' : 'block'}
+                          {item.driveUrl ? "download" : "block"}
                         </span>
-                        {areSolutionsUnlocked ? 'Solution' : 'Locked'}
+                        TP File
+                        {item.driveUrl &&
+                          courseProgress.viewedTP.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">
+                                check
+                              </span>
+                            </span>
+                          )}
+                      </button>
+
+                      {/* Solution PDF Button - Always visible */}
+                      <button
+                        onClick={() => {
+                          if (
+                            item.hasSolution &&
+                            item.solutionUrl &&
+                            areSolutionsUnlocked
+                          ) {
+                            openDriveUrl(
+                              item.solutionUrl,
+                              `${item.title} - Solution`,
+                              item.id,
+                              "TP",
+                            );
+                          }
+                        }}
+                        disabled={
+                          !item.hasSolution ||
+                          !item.solutionUrl ||
+                          !areSolutionsUnlocked
+                        }
+                        className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                          item.hasSolution &&
+                          item.solutionUrl &&
+                          areSolutionsUnlocked
+                            ? "bg-amber-600 hover:bg-amber-700 cursor-pointer"
+                            : "bg-slate-400 cursor-not-allowed opacity-70"
+                        }`}
+                        title={
+                          !item.hasSolution
+                            ? "No solution available"
+                            : !item.solutionUrl
+                              ? "Solution PDF not found - No attachment available"
+                              : !areSolutionsUnlocked
+                                ? `Solutions unlock on ${getUnlockDateMessage()}`
+                                : "Download solution"
+                        }
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {item.hasSolution &&
+                          item.solutionUrl &&
+                          areSolutionsUnlocked
+                            ? "lightbulb"
+                            : !areSolutionsUnlocked
+                              ? "lock"
+                              : "block"}
+                        </span>
+                        {areSolutionsUnlocked ? "Solution" : "Locked"}
                       </button>
                     </div>
                   </div>
@@ -893,19 +1152,21 @@ const CourseDetail: React.FC = () => {
                 <h4 className="text-sm font-bold text-amber-600 uppercase tracking-wider px-2">
                   Practical Work
                 </h4>
-                {pwSeries.map((item) => (
+                {pwSeries.map((item, index) => (
                   <div
                     key={item.id}
                     className="p-4 bg-slate-50 hover:bg-amber-50 rounded-lg border border-slate-200 hover:border-amber-300 transition-all"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-sm font-bold text-slate-900">
-                        {formatTitle(item.title)}
+                        {`${item.sequenceNumber ?? index + 1}. ${formatTitle(item.title)}`}
                       </h4>
                       <div className="flex items-center gap-2">
                         {!item.driveUrl && (
                           <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                            <span className="material-symbols-outlined text-[14px]">error</span>
+                            <span className="material-symbols-outlined text-[14px]">
+                              error
+                            </span>
                             No file
                           </span>
                         )}
@@ -922,59 +1183,89 @@ const CourseDetail: React.FC = () => {
                     <p className="text-xs text-slate-500 mb-3">
                       {item.date && !isNaN(new Date(item.date).getTime())
                         ? new Date(item.date).toLocaleDateString()
-                        : 'Date not available'}
+                        : "Date not available"}
                     </p>
                     <div className="flex gap-2">
                       {/* PW File Button - Always visible */}
                       <button
-                        onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'TP')}
+                        onClick={() =>
+                          item.driveUrl &&
+                          openDriveUrl(item.driveUrl, item.title, item.id, "TP")
+                        }
                         disabled={!item.driveUrl}
                         className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
                           item.driveUrl
-                            ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                            ? "bg-amber-600 hover:bg-amber-700 cursor-pointer"
+                            : "bg-slate-400 cursor-not-allowed opacity-70"
                         }`}
-                        title={item.driveUrl ? 'Download PW file' : 'PDF not found - No attachment available'}
+                        title={
+                          item.driveUrl
+                            ? "Download PW file"
+                            : "PDF not found - No attachment available"
+                        }
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {item.driveUrl ? 'download' : 'block'}
+                          {item.driveUrl ? "download" : "block"}
                         </span>
                         PW File
-                        {item.driveUrl && courseProgress.viewedTP.has(item.id) && (
-                          <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                          </span>
-                        )}
+                        {item.driveUrl &&
+                          courseProgress.viewedTP.has(item.id) && (
+                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-[10px]">
+                                check
+                              </span>
+                            </span>
+                          )}
                       </button>
 
                       {/* Solution Button - Always visible */}
                       <button
                         onClick={() => {
-                          if (item.hasSolution && item.solutionUrl && areSolutionsUnlocked) {
-                            openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'TP');
+                          if (
+                            item.hasSolution &&
+                            item.solutionUrl &&
+                            areSolutionsUnlocked
+                          ) {
+                            openDriveUrl(
+                              item.solutionUrl,
+                              `${item.title} - Solution`,
+                              item.id,
+                              "TP",
+                            );
                           }
                         }}
-                        disabled={!item.hasSolution || !item.solutionUrl || !areSolutionsUnlocked}
+                        disabled={
+                          !item.hasSolution ||
+                          !item.solutionUrl ||
+                          !areSolutionsUnlocked
+                        }
                         className={`flex-1 px-3 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                          item.hasSolution && item.solutionUrl && areSolutionsUnlocked
-                            ? 'bg-yellow-600 hover:bg-yellow-700 cursor-pointer'
-                            : 'bg-slate-400 cursor-not-allowed opacity-70'
+                          item.hasSolution &&
+                          item.solutionUrl &&
+                          areSolutionsUnlocked
+                            ? "bg-yellow-600 hover:bg-yellow-700 cursor-pointer"
+                            : "bg-slate-400 cursor-not-allowed opacity-70"
                         }`}
                         title={
                           !item.hasSolution
-                            ? 'No solution available'
+                            ? "No solution available"
                             : !item.solutionUrl
-                            ? 'Solution PDF not found - No attachment available'
-                            : !areSolutionsUnlocked
-                            ? `Solutions unlock on ${getUnlockDateMessage()}`
-                            : 'Download solution'
+                              ? "Solution PDF not found - No attachment available"
+                              : !areSolutionsUnlocked
+                                ? `Solutions unlock on ${getUnlockDateMessage()}`
+                                : "Download solution"
                         }
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {item.hasSolution && item.solutionUrl && areSolutionsUnlocked ? 'lightbulb' : 
-                           !areSolutionsUnlocked ? 'lock' : 'block'}
+                          {item.hasSolution &&
+                          item.solutionUrl &&
+                          areSolutionsUnlocked
+                            ? "lightbulb"
+                            : !areSolutionsUnlocked
+                              ? "lock"
+                              : "block"}
                         </span>
-                        {areSolutionsUnlocked ? 'Solution' : 'Locked'}
+                        {areSolutionsUnlocked ? "Solution" : "Locked"}
                       </button>
                     </div>
                   </div>
@@ -983,490 +1274,625 @@ const CourseDetail: React.FC = () => {
             )}
 
             {/* Empty State */}
-            {(!showTD || tdSeries.length === 0) && (!showTP || tpSeries.length === 0) && (!showTP || pwSeries.length === 0) && (
-              <div className="text-center py-12 text-slate-400">
-                <span className="material-symbols-outlined text-5xl mb-2">
-                  folder_off
-                </span>
-                <p className="text-sm">No TD/TP/PW available</p>
-              </div>
-            )}
+            {(!showTD || tdSeries.length === 0) &&
+              (!showTP || tpSeries.length === 0) &&
+              (!showTP || pwSeries.length === 0) && (
+                <div className="text-center py-12 text-slate-400">
+                  <span className="material-symbols-outlined text-5xl mb-2">
+                    folder_off
+                  </span>
+                  <p className="text-sm">No TD/TP/PW available</p>
+                </div>
+              )}
           </div>
         </div>
       </div>
 
       {/* Exams Section Below - Only show if there are valid exams */}
-      {showExam && (examFinalSeries.length > 0 || examTDSeries.length > 0 || examTPSeries.length > 0 || examDevoirSeries.length > 0 || examRattrapageSeries.length > 0) && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <span className="material-symbols-outlined text-red-600">
-                quiz
+      {showExam &&
+        (examFinalSeries.length > 0 ||
+          examTDSeries.length > 0 ||
+          examTPSeries.length > 0 ||
+          examDevoirSeries.length > 0 ||
+          examRattrapageSeries.length > 0) && (
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                <span className="material-symbols-outlined text-red-600">
+                  quiz
+                </span>
+                Exam Archives
+              </h3>
+              <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">
+                {examFinalSeries.length +
+                  examTDSeries.length +
+                  examTPSeries.length +
+                  examDevoirSeries.length +
+                  examRattrapageSeries.length}
               </span>
-              Exam Archives
-            </h3>
-            <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">
-              {examFinalSeries.length + examTDSeries.length + examTPSeries.length + examDevoirSeries.length + examRattrapageSeries.length}
-            </span>
+            </div>
+
+            {examFinalSeries.length > 0 ||
+            examTDSeries.length > 0 ||
+            examTPSeries.length > 0 ||
+            examDevoirSeries.length > 0 ||
+            examRattrapageSeries.length > 0 ? (
+              <div className="space-y-6 max-h-[600px] overflow-y-auto">
+                {/* Final Exams Section */}
+                {examFinalSeries.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-red-600 uppercase tracking-wider px-2 border-b border-red-200 pb-2">
+                      Final:
+                    </h4>
+                    {examFinalSeries.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {formatTitle(item.title)}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {!item.driveUrl && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  error
+                                </span>
+                                No file
+                              </span>
+                            )}
+                            {item.hasSolution && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  check_circle
+                                </span>
+                                Has Solution
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          {item.date && !isNaN(new Date(item.date).getTime())
+                            ? new Date(item.date).toLocaleDateString()
+                            : "Date not available"}
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() =>
+                              item.driveUrl &&
+                              openDriveUrl(
+                                item.driveUrl,
+                                item.title,
+                                item.id,
+                                "exam",
+                              )
+                            }
+                            disabled={!item.driveUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                              item.driveUrl
+                                ? "bg-red-600 hover:bg-red-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              item.driveUrl
+                                ? "Download exam"
+                                : "PDF not found - No attachment available"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.driveUrl ? "download" : "block"}
+                            </span>
+                            Exam File
+                            {item.driveUrl &&
+                              courseProgress.viewedExams.has(item.id) && (
+                                <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[10px]">
+                                    check
+                                  </span>
+                                </span>
+                              )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (item.hasSolution && item.solutionUrl) {
+                                openDriveUrl(
+                                  item.solutionUrl,
+                                  `${item.title} - Solution`,
+                                  item.id,
+                                  "exam",
+                                );
+                              }
+                            }}
+                            disabled={!item.hasSolution || !item.solutionUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                              item.hasSolution && item.solutionUrl
+                                ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              !item.hasSolution
+                                ? "No solution available"
+                                : !item.solutionUrl
+                                  ? "Solution PDF not found - No attachment available"
+                                  : "Download solution"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.hasSolution && item.solutionUrl
+                                ? "lightbulb"
+                                : "block"}
+                            </span>
+                            Solution
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* TD Exams Section */}
+                {examTDSeries.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2 border-b border-blue-200 pb-2">
+                      TD / Tutorial:
+                    </h4>
+                    {examTDSeries.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {formatTitle(item.title)}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {!item.driveUrl && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  error
+                                </span>
+                                No file
+                              </span>
+                            )}
+                            {item.hasSolution && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  check_circle
+                                </span>
+                                Has Solution
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          {item.date && !isNaN(new Date(item.date).getTime())
+                            ? new Date(item.date).toLocaleDateString()
+                            : "Date not available"}
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() =>
+                              item.driveUrl &&
+                              openDriveUrl(
+                                item.driveUrl,
+                                item.title,
+                                item.id,
+                                "exam",
+                              )
+                            }
+                            disabled={!item.driveUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                              item.driveUrl
+                                ? "bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              item.driveUrl
+                                ? "Download exam"
+                                : "PDF not found - No attachment available"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.driveUrl ? "download" : "block"}
+                            </span>
+                            Exam File
+                            {item.driveUrl &&
+                              courseProgress.viewedExams.has(item.id) && (
+                                <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[10px]">
+                                    check
+                                  </span>
+                                </span>
+                              )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (item.hasSolution && item.solutionUrl) {
+                                openDriveUrl(
+                                  item.solutionUrl,
+                                  `${item.title} - Solution`,
+                                  item.id,
+                                  "exam",
+                                );
+                              }
+                            }}
+                            disabled={!item.hasSolution || !item.solutionUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                              item.hasSolution && item.solutionUrl
+                                ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              !item.hasSolution
+                                ? "No solution available"
+                                : !item.solutionUrl
+                                  ? "Solution PDF not found - No attachment available"
+                                  : "Download solution"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.hasSolution && item.solutionUrl
+                                ? "lightbulb"
+                                : "block"}
+                            </span>
+                            Solution
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* TP Exams Section */}
+                {examTPSeries.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-green-600 uppercase tracking-wider px-2 border-b border-green-200 pb-2">
+                      TP / Lab:
+                    </h4>
+                    {examTPSeries.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 bg-slate-50 hover:bg-green-50 rounded-lg border border-slate-200 hover:border-green-300 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {formatTitle(item.title)}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {!item.driveUrl && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  error
+                                </span>
+                                No file
+                              </span>
+                            )}
+                            {item.hasSolution && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  check_circle
+                                </span>
+                                Has Solution
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          {item.date && !isNaN(new Date(item.date).getTime())
+                            ? new Date(item.date).toLocaleDateString()
+                            : "Date not available"}
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() =>
+                              item.driveUrl &&
+                              openDriveUrl(
+                                item.driveUrl,
+                                item.title,
+                                item.id,
+                                "exam",
+                              )
+                            }
+                            disabled={!item.driveUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                              item.driveUrl
+                                ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              item.driveUrl
+                                ? "Download exam"
+                                : "PDF not found - No attachment available"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.driveUrl ? "download" : "block"}
+                            </span>
+                            Exam File
+                            {item.driveUrl &&
+                              courseProgress.viewedExams.has(item.id) && (
+                                <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[10px]">
+                                    check
+                                  </span>
+                                </span>
+                              )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (item.hasSolution && item.solutionUrl) {
+                                openDriveUrl(
+                                  item.solutionUrl,
+                                  `${item.title} - Solution`,
+                                  item.id,
+                                  "exam",
+                                );
+                              }
+                            }}
+                            disabled={!item.hasSolution || !item.solutionUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                              item.hasSolution && item.solutionUrl
+                                ? "bg-amber-600 hover:bg-amber-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              !item.hasSolution
+                                ? "No solution available"
+                                : !item.solutionUrl
+                                  ? "Solution PDF not found - No attachment available"
+                                  : "Download solution"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.hasSolution && item.solutionUrl
+                                ? "lightbulb"
+                                : "block"}
+                            </span>
+                            Solution
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Rattrapage Exams Section */}
+                {examRattrapageSeries.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-orange-600 uppercase tracking-wider px-2 border-b border-orange-200 pb-2">
+                      Rattrapage / Makeup:
+                    </h4>
+                    {examRattrapageSeries.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 bg-slate-50 hover:bg-orange-50 rounded-lg border border-slate-200 hover:border-orange-300 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {formatTitle(item.title)}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {!item.driveUrl && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  error
+                                </span>
+                                No file
+                              </span>
+                            )}
+                            {item.hasSolution && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  check_circle
+                                </span>
+                                Has Solution
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          {item.date && !isNaN(new Date(item.date).getTime())
+                            ? new Date(item.date).toLocaleDateString()
+                            : "Date not available"}
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() =>
+                              item.driveUrl &&
+                              openDriveUrl(
+                                item.driveUrl,
+                                item.title,
+                                item.id,
+                                "exam",
+                              )
+                            }
+                            disabled={!item.driveUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                              item.driveUrl
+                                ? "bg-orange-600 hover:bg-orange-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              item.driveUrl
+                                ? "Download exam"
+                                : "PDF not found - No attachment available"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.driveUrl ? "download" : "block"}
+                            </span>
+                            Exam File
+                            {item.driveUrl &&
+                              courseProgress.viewedExams.has(item.id) && (
+                                <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[10px]">
+                                    check
+                                  </span>
+                                </span>
+                              )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (item.hasSolution && item.solutionUrl) {
+                                openDriveUrl(
+                                  item.solutionUrl,
+                                  `${item.title} - Solution`,
+                                  item.id,
+                                  "exam",
+                                );
+                              }
+                            }}
+                            disabled={!item.hasSolution || !item.solutionUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                              item.hasSolution && item.solutionUrl
+                                ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              !item.hasSolution
+                                ? "No solution available"
+                                : !item.solutionUrl
+                                  ? "Solution PDF not found - No attachment available"
+                                  : "Download solution"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.hasSolution && item.solutionUrl
+                                ? "lightbulb"
+                                : "block"}
+                            </span>
+                            Solution
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Devoir Exams Section */}
+                {examDevoirSeries.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wider px-2 border-b border-purple-200 pb-2">
+                      Devoir:
+                    </h4>
+                    {examDevoirSeries.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 bg-slate-50 hover:bg-purple-50 rounded-lg border border-slate-200 hover:border-purple-300 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {formatTitle(item.title)}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {!item.driveUrl && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  error
+                                </span>
+                                No file
+                              </span>
+                            )}
+                            {item.hasSolution && (
+                              <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  check_circle
+                                </span>
+                                Has Solution
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-3">
+                          {item.date && !isNaN(new Date(item.date).getTime())
+                            ? new Date(item.date).toLocaleDateString()
+                            : "Date not available"}
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() =>
+                              item.driveUrl &&
+                              openDriveUrl(
+                                item.driveUrl,
+                                item.title,
+                                item.id,
+                                "exam",
+                              )
+                            }
+                            disabled={!item.driveUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
+                              item.driveUrl
+                                ? "bg-purple-600 hover:bg-purple-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              item.driveUrl
+                                ? "Download exam"
+                                : "PDF not found - No attachment available"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.driveUrl ? "download" : "block"}
+                            </span>
+                            Exam File
+                            {item.driveUrl &&
+                              courseProgress.viewedExams.has(item.id) && (
+                                <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-white text-[10px]">
+                                    check
+                                  </span>
+                                </span>
+                              )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (item.hasSolution && item.solutionUrl) {
+                                openDriveUrl(
+                                  item.solutionUrl,
+                                  `${item.title} - Solution`,
+                                  item.id,
+                                  "exam",
+                                );
+                              }
+                            }}
+                            disabled={!item.hasSolution || !item.solutionUrl}
+                            className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                              item.hasSolution && item.solutionUrl
+                                ? "bg-green-600 hover:bg-green-700 cursor-pointer"
+                                : "bg-slate-400 cursor-not-allowed opacity-70"
+                            }`}
+                            title={
+                              !item.hasSolution
+                                ? "No solution available"
+                                : !item.solutionUrl
+                                  ? "Solution PDF not found - No attachment available"
+                                  : "Download solution"
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {item.hasSolution && item.solutionUrl
+                                ? "lightbulb"
+                                : "block"}
+                            </span>
+                            Solution
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-slate-400">
+                <span className="material-symbols-outlined text-5xl mb-2">
+                  quiz
+                </span>
+                <p className="text-sm">No exams available</p>
+              </div>
+            )}
           </div>
-
-          {(examFinalSeries.length > 0 || examTDSeries.length > 0 || examTPSeries.length > 0 || examDevoirSeries.length > 0 || examRattrapageSeries.length > 0) ? (
-            <div className="space-y-6 max-h-[600px] overflow-y-auto">
-              {/* Final Exams Section */}
-              {examFinalSeries.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold text-red-600 uppercase tracking-wider px-2 border-b border-red-200 pb-2">
-                    Final:
-                  </h4>
-                  {examFinalSeries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-200 hover:border-red-300 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-bold text-slate-900">
-                          {formatTitle(item.title)}
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          {!item.driveUrl && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">error</span>
-                              No file
-                            </span>
-                          )}
-                          {item.hasSolution && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">
-                                check_circle
-                              </span>
-                              Has Solution
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500 mb-3">
-                        {item.date && !isNaN(new Date(item.date).getTime())
-                          ? new Date(item.date).toLocaleDateString()
-                          : 'Date not available'}
-                      </p>
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
-                          disabled={!item.driveUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
-                            item.driveUrl
-                              ? 'bg-red-600 hover:bg-red-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.driveUrl ? 'download' : 'block'}
-                          </span>
-                          Exam File
-                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
-                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (item.hasSolution && item.solutionUrl) {
-                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
-                            }
-                          }}
-                          disabled={!item.hasSolution || !item.solutionUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            item.hasSolution && item.solutionUrl
-                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={
-                            !item.hasSolution
-                              ? 'No solution available'
-                              : !item.solutionUrl
-                              ? 'Solution PDF not found - No attachment available'
-                              : 'Download solution'
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                          </span>
-                          Solution
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* TD Exams Section */}
-              {examTDSeries.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider px-2 border-b border-blue-200 pb-2">
-                    TD / Tutorial:
-                  </h4>
-                  {examTDSeries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-bold text-slate-900">
-                          {formatTitle(item.title)}
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          {!item.driveUrl && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">error</span>
-                              No file
-                            </span>
-                          )}
-                          {item.hasSolution && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">
-                                check_circle
-                              </span>
-                              Has Solution
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500 mb-3">
-                        {item.date && !isNaN(new Date(item.date).getTime())
-                          ? new Date(item.date).toLocaleDateString()
-                          : 'Date not available'}
-                      </p>
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
-                          disabled={!item.driveUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
-                            item.driveUrl
-                              ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.driveUrl ? 'download' : 'block'}
-                          </span>
-                          Exam File
-                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
-                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (item.hasSolution && item.solutionUrl) {
-                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
-                            }
-                          }}
-                          disabled={!item.hasSolution || !item.solutionUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            item.hasSolution && item.solutionUrl
-                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={
-                            !item.hasSolution
-                              ? 'No solution available'
-                              : !item.solutionUrl
-                              ? 'Solution PDF not found - No attachment available'
-                              : 'Download solution'
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                          </span>
-                          Solution
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* TP Exams Section */}
-              {examTPSeries.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold text-green-600 uppercase tracking-wider px-2 border-b border-green-200 pb-2">
-                    TP / Lab:
-                  </h4>
-                  {examTPSeries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 bg-slate-50 hover:bg-green-50 rounded-lg border border-slate-200 hover:border-green-300 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-bold text-slate-900">
-                          {formatTitle(item.title)}
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          {!item.driveUrl && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">error</span>
-                              No file
-                            </span>
-                          )}
-                          {item.hasSolution && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">
-                                check_circle
-                              </span>
-                              Has Solution
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500 mb-3">
-                        {item.date && !isNaN(new Date(item.date).getTime())
-                          ? new Date(item.date).toLocaleDateString()
-                          : 'Date not available'}
-                      </p>
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
-                          disabled={!item.driveUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
-                            item.driveUrl
-                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.driveUrl ? 'download' : 'block'}
-                          </span>
-                          Exam File
-                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
-                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (item.hasSolution && item.solutionUrl) {
-                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
-                            }
-                          }}
-                          disabled={!item.hasSolution || !item.solutionUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            item.hasSolution && item.solutionUrl
-                              ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={
-                            !item.hasSolution
-                              ? 'No solution available'
-                              : !item.solutionUrl
-                              ? 'Solution PDF not found - No attachment available'
-                              : 'Download solution'
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                          </span>
-                          Solution
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Rattrapage Exams Section */}
-              {examRattrapageSeries.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold text-orange-600 uppercase tracking-wider px-2 border-b border-orange-200 pb-2">
-                    Rattrapage / Makeup:
-                  </h4>
-                  {examRattrapageSeries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 bg-slate-50 hover:bg-orange-50 rounded-lg border border-slate-200 hover:border-orange-300 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-bold text-slate-900">
-                          {formatTitle(item.title)}
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          {!item.driveUrl && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">error</span>
-                              No file
-                            </span>
-                          )}
-                          {item.hasSolution && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">
-                                check_circle
-                              </span>
-                              Has Solution
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500 mb-3">
-                        {item.date && !isNaN(new Date(item.date).getTime())
-                          ? new Date(item.date).toLocaleDateString()
-                          : 'Date not available'}
-                      </p>
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
-                          disabled={!item.driveUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
-                            item.driveUrl
-                              ? 'bg-orange-600 hover:bg-orange-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.driveUrl ? 'download' : 'block'}
-                          </span>
-                          Exam File
-                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
-                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (item.hasSolution && item.solutionUrl) {
-                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
-                            }
-                          }}
-                          disabled={!item.hasSolution || !item.solutionUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            item.hasSolution && item.solutionUrl
-                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={
-                            !item.hasSolution
-                              ? 'No solution available'
-                              : !item.solutionUrl
-                              ? 'Solution PDF not found - No attachment available'
-                              : 'Download solution'
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                          </span>
-                          Solution
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Devoir Exams Section */}
-              {examDevoirSeries.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wider px-2 border-b border-purple-200 pb-2">
-                    Devoir:
-                  </h4>
-                  {examDevoirSeries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 bg-slate-50 hover:bg-purple-50 rounded-lg border border-slate-200 hover:border-purple-300 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-bold text-slate-900">
-                          {formatTitle(item.title)}
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          {!item.driveUrl && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">error</span>
-                              No file
-                            </span>
-                          )}
-                          {item.hasSolution && (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
-                              <span className="material-symbols-outlined text-[14px]">
-                                check_circle
-                              </span>
-                              Has Solution
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500 mb-3">
-                        {item.date && !isNaN(new Date(item.date).getTime())
-                          ? new Date(item.date).toLocaleDateString()
-                          : 'Date not available'}
-                      </p>
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => item.driveUrl && openDriveUrl(item.driveUrl, item.title, item.id, 'exam')}
-                          disabled={!item.driveUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 relative ${
-                            item.driveUrl
-                              ? 'bg-purple-600 hover:bg-purple-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={item.driveUrl ? 'Download exam' : 'PDF not found - No attachment available'}
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.driveUrl ? 'download' : 'block'}
-                          </span>
-                          Exam File
-                          {item.driveUrl && courseProgress.viewedExams.has(item.id) && (
-                            <span className="absolute -top-1 -right-1 size-4 bg-green-500 rounded-full flex items-center justify-center">
-                              <span className="material-symbols-outlined text-white text-[10px]">check</span>
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (item.hasSolution && item.solutionUrl) {
-                              openDriveUrl(item.solutionUrl, `${item.title} - Solution`, item.id, 'exam');
-                            }
-                          }}
-                          disabled={!item.hasSolution || !item.solutionUrl}
-                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
-                            item.hasSolution && item.solutionUrl
-                              ? 'bg-green-600 hover:bg-green-700 cursor-pointer'
-                              : 'bg-slate-400 cursor-not-allowed opacity-70'
-                          }`}
-                          title={
-                            !item.hasSolution
-                              ? 'No solution available'
-                              : !item.solutionUrl
-                              ? 'Solution PDF not found - No attachment available'
-                              : 'Download solution'
-                          }
-                        >
-                          <span className="material-symbols-outlined text-[16px]">
-                            {item.hasSolution && item.solutionUrl ? 'lightbulb' : 'block'}
-                          </span>
-                          Solution
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-12 text-slate-400">
-              <span className="material-symbols-outlined text-5xl mb-2">
-                quiz
-              </span>
-              <p className="text-sm">No exams available</p>
-            </div>
-          )}
-        </div>
-      )}
+        )}
 
       {/* Secure PDF Viewer Modal */}
       {viewingPDF && (
